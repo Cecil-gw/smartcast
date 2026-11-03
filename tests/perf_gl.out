@@ -1,0 +1,21 @@
+scrcpy 5.0.1 <https://github.com/Genymobile/scrcpy>
+INFO: ADB device found:
+INFO:     -->   (usb)  320146588834                    device  W201DS
+[server] INFO: Device: [ZTE] ZTE W201DS (Android 13)
+INFO: Renderer: opengl
+INFO: OpenGL version: 4.6.0 NVIDIA 591.86
+INFO: Trilinear filtering enabled
+INFO: D3D11VA not available: the renderer is not Direct3D 11
+INFO: D3D11VA interop unavailable
+INFO: Interop: software
+INFO: Video decoding: software
+INFO: FPS counter started
+INFO: Texture: 1920x1200
+INFO: 197 fps (+68 frames skipped)
+INFO: 52 fps
+INFO: 50 fps
+INFO: 49 fps
+INFO: 52 fps
+INFO: 57 fps
+INFO: 48 fps
+INFO: 47 fps

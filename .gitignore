@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+vendor/
+
+# build artifacts
+build/
+dist/
+*.spec
+
+# runtime data
+logs/
+config/
+*.log
+SmartCast/
+
+# ---- ADB: only the 3 runtime files needed ----
+resources/adb/*
+!resources/adb/adb.exe
+!resources/adb/AdbWinApi.dll
+!resources/adb/AdbWinUsbApi.dll
+
+# ---- scrcpy: keep runtime, drop the duplicated adb ----
+resources/scrcpy/adb.exe
+resources/scrcpy/AdbWinApi.dll
+resources/scrcpy/AdbWinUsbApi.dll
+resources/scrcpy/open_a_terminal_here.bat
+
+# OS junk
+Thumbs.db
+.DS_Store

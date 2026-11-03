@@ -1,0 +1,20 @@
+scrcpy 5.0.1 <https://github.com/Genymobile/scrcpy>
+INFO: ADB device found:
+INFO:     -->   (usb)  320146588834                    device  W201DS
+[server] INFO: Device: [ZTE] ZTE W201DS (Android 13)
+INFO: Renderer: direct3d11
+INFO: Interop: d3d11va
+INFO: Video decoding: d3d11va
+INFO: FPS counter started
+INFO: Texture (D3D11VA): 1920x1200
+INFO: 25 fps (+24 frames skipped)
+INFO: 25 fps
+INFO: 24 fps
+INFO: 28 fps
+INFO: 27 fps
+INFO: 25 fps
+INFO: 28 fps
+INFO: 27 fps
+INFO: 28 fps
+INFO: 25 fps
+INFO: 26 fps
