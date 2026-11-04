@@ -150,6 +150,45 @@
 - **删除文件**（二次确认，删文件并删记录）；
 - 文件被外部删除时标记为「缺失」，不会异常。
 
+## 自定义背景
+
+每个功能页面都可以放一张自己的插画作为背景。
+
+1. 准备图片（建议 16:9 横图，宽度 1600px 以上，小于 5MB）；
+2. 重命名为 `background.png`；
+3. 放到对应目录：
+
+```
+resources/assets/illustrations/home/background.png       首页
+resources/assets/illustrations/devices/background.png    设备管理
+resources/assets/illustrations/casting/background.png    投屏中心
+resources/assets/illustrations/control/background.png    设备控制
+resources/assets/illustrations/media/background.png      媒体管理
+resources/assets/illustrations/settings/background.png   设置
+resources/assets/illustrations/logs/background.png       运行日志
+```
+
+4. 重启 SmartCast，切换页面即可看到对应背景。
+
+**说明**
+
+- 图片不存在或损坏时，页面自动使用纯色背景，不影响使用；
+- 不同页面默认使用不同展示方式（右侧装饰 / 全区域 / 水印），避免遮挡内容；
+- 功能面板为半透明白色，插画会自然透出，文字保持清晰；
+- 想统一调整透明度或展示方式，可编辑 `settings.json`：
+
+```json
+{
+  "background_enabled": true,
+  "background_opacity": 0.8,
+  "background_mode": "",
+  "background_position": ""
+}
+```
+
+`background_mode` 可选 `fill` / `right` / `watermark`，留空表示使用各页面默认值；
+`background_position` 可选 `left` / `center` / `right`，留空同样使用默认值。
+
 ## 设置
 
 - **工具路径**：ADB / scrcpy 可执行文件路径（留空使用内置）；

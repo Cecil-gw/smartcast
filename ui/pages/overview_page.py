@@ -24,6 +24,10 @@ from ui.theme import COLORS
 class ActionCard(QFrame):
     clicked = Signal()
 
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setCursor(Qt.PointingHandCursor)
+
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
             self.clicked.emit()
@@ -70,6 +74,7 @@ class OverviewPage(QWidget):
         content.setObjectName("OverviewContent")
         scroll.setWidget(content)
 
+        # 右侧留白给人物立绘；内容集中在左侧
         root = QVBoxLayout(content)
         root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(14)
@@ -127,6 +132,8 @@ class OverviewPage(QWidget):
         summary.addWidget(self.scan_tile[0], 1, 1)
         summary.setColumnStretch(0, 1)
         summary.setColumnStretch(1, 1)
+        summary.setRowStretch(0, 1)
+        summary.setRowStretch(1, 1)
         root.addLayout(summary)
 
         actions_title = QLabel("常用操作")
@@ -150,55 +157,17 @@ class OverviewPage(QWidget):
         action_grid.addWidget(help_card, 1, 1)
         action_grid.setColumnStretch(0, 1)
         action_grid.setColumnStretch(1, 1)
+        action_grid.setRowStretch(0, 1)
+        action_grid.setRowStretch(1, 1)
         root.addLayout(action_grid)
+
         root.addStretch(1)
-
-    def _build_empty_device(self) -> QFrame:
-        card = QFrame()
-        card.setObjectName("ConfigCard")
-        layout = QHBoxLayout(card)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(14)
-
-        badge = QFrame()
-        badge.setObjectName("IconBadge")
-        badge.setFixedSize(44, 44)
-        badge_layout = QHBoxLayout(badge)
-        badge_layout.setContentsMargins(0, 0, 0, 0)
-        icon_label = QLabel()
-        icon_label.setPixmap(icon("phone", COLORS["accent_hover"], 24).pixmap(24, 24))
-        icon_label.setAlignment(Qt.AlignCenter)
-        badge_layout.addWidget(icon_label)
-        layout.addWidget(badge, 0, Qt.AlignVCenter)
-
-        text = QVBoxLayout()
-        text.setSpacing(3)
-        title = QLabel("暂未发现 Android 设备")
-        title.setObjectName("ActionTitle")
-        hint = QLabel("请使用支持数据传输的 USB 线连接，并开启 USB 调试。")
-        hint.setObjectName("Caption")
-        hint.setWordWrap(True)
-        text.addWidget(title)
-        text.addWidget(hint)
-        layout.addLayout(text, 1)
-
-        scan = QPushButton("立即扫描")
-        scan.setObjectName("PrimaryButton")
-        scan.setCursor(Qt.PointingHandCursor)
-        scan.clicked.connect(self.scan_requested)
-        help = QPushButton("帮助")
-        help.setObjectName("GhostButton")
-        help.setCursor(Qt.PointingHandCursor)
-        help.clicked.connect(self.help_requested)
-        layout.addWidget(scan)
-        layout.addWidget(help)
-        return card
 
     def _metric_tile(self, icon_name: str, title: str, value: str, hint: str) -> tuple[QFrame, QLabel, QLabel]:
         card = QFrame()
         card.setObjectName("StatCard")
-        card.setFixedHeight(84)
-        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        card.setMinimumHeight(82)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout = QHBoxLayout(card)
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(12)
@@ -219,7 +188,6 @@ class OverviewPage(QWidget):
         text.setSpacing(1)
         value_label = QLabel(value)
         value_label.setObjectName("MetricValue")
-        value_label.setWordWrap(True)
         title_label = QLabel(title)
         title_label.setObjectName("InfoLabel")
         hint_label = QLabel(hint)
@@ -235,8 +203,8 @@ class OverviewPage(QWidget):
     def _action_card(self, title: str, hint: str, icon_name: str) -> QFrame:
         card = ActionCard()
         card.setObjectName("ActionCard")
-        card.setFixedHeight(84)
-        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        card.setMinimumHeight(78)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         card.setCursor(Qt.PointingHandCursor)
         layout = QHBoxLayout(card)
         layout.setContentsMargins(14, 12, 14, 12)
@@ -340,7 +308,7 @@ class OverviewPage(QWidget):
 
     def set_device_cards(self, devices: list[DeviceInfo], cast_states: dict[str, str]) -> None:
         self._clear_device_cards()
-        columns = max(1, min(5, len(devices)))
+        columns = max(1, min(3, len(devices)))
         for index, device in enumerate(devices):
             state = cast_states.get(device.serial, "idle")
             self._card_grid.addWidget(self._make_small_card(device, state), index // columns, index % columns)
@@ -351,14 +319,6 @@ class OverviewPage(QWidget):
             self._device = None
             self.control_panel.set_device(None)
             self.screen_card.set_device(None)
-            self.device_name_label.setText("未连接设备")
-            self.conn_pill.setText("—")
-            self.conn_pill.set_tone("idle")
-            self.state_pill.setText("离线")
-            self.state_pill.set_tone("idle")
-            self.start_button.setEnabled(False)
-            self.stop_button.setEnabled(False)
-            self._details_button.setEnabled(False)
             return
         self._device = device
         name = f"{device.manufacturer} {device.model}".strip()

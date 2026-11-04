@@ -5,10 +5,37 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Q_ARG, QMetaObject, QObject, QThread, QTime, QTimer, Qt, QUrl, Signal
+from PySide6.QtCore import (
+    QAbstractAnimation,
+    Q_ARG,
+    QEasingCurve,
+    QMetaObject,
+    QParallelAnimationGroup,
+    QObject,
+    QPropertyAnimation,
+    QThread,
+    QTime,
+    QTimer,
+    Qt,
+    QUrl,
+    Signal,
+)
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QMainWindow, QMessageBox, QSizeGrip, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+        QGraphicsOpacityEffect,
+    QFileDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QMainWindow,
+    QMessageBox,
+    QSizeGrip,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
+import shiboken6
 from core.adb_manager import AdbManager
 from core.adb_network_manager import AdbNetworkManager
 from core.device_control import DeviceControlManager, ScreenBackup, ScreenControlManager
@@ -34,7 +61,7 @@ from ui.pages.log_page import LogPage
 from ui.pages.overview_page import OverviewPage
 from ui.pages.settings_page import SettingsPage
 from ui.settings_dialog import DeviceSettingsDialog
-from ui.theme import stylesheet_for
+from ui.theme import BackgroundManager, stylesheet_for
 from utils.config_manager import ConfigManager
 from utils.logger import LOG_DIR, setup_logger
 from utils.system_utils import resolve_tool
@@ -87,12 +114,16 @@ class MainWindow(QMainWindow):
         self.base_scan_interval = int(self.config.settings["scan_interval"])
         self.casting_scan_interval = int(self.config.settings["casting_scan_interval"])
         self.auto_scan_enabled = bool(self.config.settings["auto_scan"])
+        self.animations_enabled = bool(self.config.settings.get("animations_enabled", True))
+        self.animation_scale = float(self.config.settings.get("animation_duration_scale", 1.0))
         self.network = AdbNetworkManager(self.adb.adb_path)
         self.control = DeviceControlManager(self.adb)
         self.screen = ScreenControlManager(self.adb)
         self.media = MediaManager(self.adb.adb_path)
         self._media_threads: set = set()
         self._recording_serials: set[str] = set()
+        self._content_anim_group: QAbstractAnimation | None = None
+        self._content_anim_effect = None
         self._screen_backups: dict[str, ScreenBackup] = {}
         self._screen_threads: dict[str, ScreenCommandThread] = {}
         self._control_threads: dict[str, ControlCommandThread] = {}
@@ -117,6 +148,7 @@ class MainWindow(QMainWindow):
         self.status_label = self.status_bar.message_label
         self._connect_signals()
         self.apply_theme()
+        self._apply_page_background(self.stack.currentIndex(), animate=False)
         self.log_page.load_recent(LOG_DIR / "smartcast.log")
         self._setup_log_bridge()
         self.cast_page.load_defaults(self.config.settings["default_parameters"])
@@ -169,13 +201,51 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.settings_page)
         self.stack.addWidget(self.detail_page)
         self.stack.addWidget(self.log_page)
-        root.addWidget(self.stack, 1)
+        # Host layer: the background widget will be inserted here in phase 2,
+        # sharing the same grid cell so it never affects page layout metrics.
+        self.page_host = QWidget()
+        self.page_host.setObjectName("PageHost")
+        host_layout = QGridLayout(self.page_host)
+        host_layout.setContentsMargins(0, 0, 0, 0)
+        host_layout.setSpacing(0)
+
+        self.page_surface = QWidget()
+        self.page_surface.setObjectName("PageSurface")
+        surface_layout = QVBoxLayout(self.page_surface)
+        surface_layout.setContentsMargins(0, 0, 0, 0)
+        surface_layout.setSpacing(0)
+        surface_layout.addWidget(self.stack)
+        host_layout.addWidget(self.page_surface, 0, 0)
+        root.addWidget(self.page_host, 1)
         shell.addWidget(content, 1)
         self.setCentralWidget(central)
         self._size_grip = QSizeGrip(central)
         self._size_grip.setFixedSize(16, 16)
         self._size_grip.raise_()
         self.toast = Toast(central)
+
+        # 背景系统：图片缺失时自动回退为纯色，不影响任何页面
+        self.background = BackgroundManager(self.page_host, self.page_surface, theme="light")
+        self._page_background_keys = {
+            self.overview_page: "home",
+            self.device_page: "devices",
+            self.sessions_page: "casting",
+            self.cast_page: "settings",
+            self.guide_page: "control",
+            self.settings_page: "settings",
+            self.media_page: "media",
+            self.log_page: "logs",
+            self.detail_page: "control",
+        }
+        settings = self.config.settings
+        self.background.set_enabled(bool(settings.get("background_enabled", True)))
+        self.background.animations_enabled = self.animations_enabled
+        self.background.animation_scale = self.animation_scale
+        self.background.set_opacity(float(settings.get("background_opacity", 1.0)))
+        if settings.get("background_mode"):
+            self.background.set_display_mode(settings["background_mode"])
+        if settings.get("background_position"):
+            self.background.set_position(settings["background_position"])
 
     def _connect_signals(self) -> None:
         self.title_bar.minimize_requested.connect(self.showMinimized)
@@ -227,6 +297,8 @@ class MainWindow(QMainWindow):
         self.log_page.clear_logs_requested.connect(self.clear_interface_logs)
         self.log_page.export_logs_requested.connect(self.export_logs)
         self.worker.devices_changed.connect(self.refresh_devices)
+        if hasattr(self, "background"):
+            self.stack.currentChanged.connect(self._apply_page_background)
         self.scrcpy.casting_started.connect(self._scrcpy_started)
         self.scrcpy.casting_failed.connect(self._scrcpy_failed)
         self.scrcpy.casting_stopped.connect(self._casting_stopped)
@@ -979,11 +1051,25 @@ class MainWindow(QMainWindow):
         self.status_bar.set_message("ADB 序列号已复制", "success")
         self.toast.show_message("ADB 序列号已复制", "success", 1800)
 
+    def _apply_page_background(self, index: int, animate: bool = True) -> None:
+        """页面切换只更新背景层，不重建任何页面或会话。"""
+        if not hasattr(self, "background"):
+            return
+        widget = self.stack.widget(index)
+        key = self._page_background_keys.get(widget, "")
+        animate = animate and self.animations_enabled
+        if key:
+            self.background.set_background(key, animate=animate)
+        else:
+            self.background.clear_background()
+
     def apply_theme(self) -> None:
         app = QApplication.instance()
         if app is not None:
             app.setStyleSheet(stylesheet_for("light"))
         self.config.settings["theme"] = "light"
+        if hasattr(self, "background"):
+            self.background.set_theme("light")
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -1002,6 +1088,52 @@ class MainWindow(QMainWindow):
         if event.type() == event.Type.WinIdChange or event.type() == event.Type.WindowStateChange:
             self.title_bar.set_maximized(self.isMaximized())
 
+    def _play_content_transition(self) -> None:
+        """页面内容淡入 + 轻微右移回归；可被动画开关关闭。"""
+        if not self.animations_enabled or self.animation_scale <= 0:
+            return
+        duration = max(1, int(220 * self.animation_scale))
+
+        # 快速连续切换：终止上一段动画并移除旧效果，避免叠加与残影
+        if self._content_anim_group is not None:
+            self._content_anim_group.stop()
+        if self._content_anim_effect is not None:
+            self.page_surface.setGraphicsEffect(None)
+        self._content_anim_group = None
+        self._content_anim_effect = None
+
+        effect = QGraphicsOpacityEffect(self.page_surface)
+        effect.setOpacity(0.0)
+        self.page_surface.setGraphicsEffect(effect)
+        self._content_anim_effect = shiboken6.getCppPointer(effect)
+
+        fade = QPropertyAnimation(effect, b"opacity", self)
+        fade.setDuration(duration)
+        fade.setStartValue(0.0)
+        fade.setEndValue(1.0)
+        fade.setEasingCurve(QEasingCurve.OutCubic)
+
+        slide = QPropertyAnimation(self.page_surface, b"pos", self)
+        start = self.page_surface.pos()
+        slide.setDuration(duration)
+        slide.setStartValue(start + __import__("PySide6.QtCore", fromlist=["QPoint"]).QPoint(12, 0))
+        slide.setEndValue(start)
+        slide.setEasingCurve(QEasingCurve.OutCubic)
+
+        group = QParallelAnimationGroup(self)
+        group.addAnimation(fade)
+        group.addAnimation(slide)
+        def _cleanup() -> None:
+            if shiboken6.isValid(self.page_surface):
+                self.page_surface.move(0, 0)
+                self.page_surface.setGraphicsEffect(None)
+            self._content_anim_group = None
+            self._content_anim_effect = None
+
+        group.finished.connect(_cleanup)
+        self._content_anim_group = group
+        group.start(QAbstractAnimation.DeleteWhenStopped)
+
     def _navigate(self, key: str) -> None:
         if key == "home":
             self.show_home_page()
@@ -1019,10 +1151,12 @@ class MainWindow(QMainWindow):
             self.show_log_page()
         elif key == "settings":
             self.open_settings()
+        self._play_content_transition()
 
     def open_settings(self) -> None:
         self.settings_page.load(self.config.settings)
         self.stack.setCurrentWidget(self.settings_page)
+        self._play_content_transition()
         self.header.settings_button.setEnabled(False)
         self.sidebar.set_active("settings")
         self.header.set_context("设置")
@@ -1105,6 +1239,8 @@ class MainWindow(QMainWindow):
         self.base_scan_interval = int(self.config.settings["scan_interval"])
         self.casting_scan_interval = int(self.config.settings["casting_scan_interval"])
         self.auto_scan_enabled = bool(self.config.settings["auto_scan"])
+        self.animations_enabled = bool(self.config.settings.get("animations_enabled", True))
+        self.animation_scale = float(self.config.settings.get("animation_duration_scale", 1.0))
         self.device_page.set_auto_scan(self.auto_scan_enabled, self.base_scan_interval)
         self.cast_page.load_defaults(self.config.settings["default_parameters"])
         active = any(state in {"starting", "running", "stopping"} for state in self.cast_states.values())

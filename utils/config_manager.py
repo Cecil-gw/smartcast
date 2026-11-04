@@ -41,6 +41,12 @@ class ConfigManager:
             "adb_path": "",
             "scrcpy_path": "",
             "recent_network_addresses": [],
+            "background_enabled": True,
+            "background_opacity": 1.0,
+            "background_mode": "",
+            "background_position": "",
+            "animations_enabled": True,
+            "animation_duration_scale": 1.0,
             "scan_interval": 2,
             "casting_scan_interval": 0,
             "auto_scan": True,
@@ -73,6 +79,20 @@ class ConfigManager:
         except (TypeError, ValueError):
             self.settings["casting_scan_interval"] = 0
         self.settings["auto_scan"] = bool(self.settings.get("auto_scan", True))
+        self.settings["background_enabled"] = bool(self.settings.get("background_enabled", True))
+        try:
+            self.settings["background_opacity"] = max(0.0, min(1.0, float(self.settings.get("background_opacity", 1.0))))
+        except (TypeError, ValueError):
+            self.settings["background_opacity"] = 1.0
+        mode = str(self.settings.get("background_mode", "") or "")
+        self.settings["background_mode"] = mode if mode in {"fill", "right", "watermark"} else ""
+        position = str(self.settings.get("background_position", "") or "")
+        self.settings["background_position"] = position if position in {"left", "center", "right"} else ""
+        self.settings["animations_enabled"] = bool(self.settings.get("animations_enabled", True))
+        try:
+            self.settings["animation_duration_scale"] = max(0.0, min(2.0, float(self.settings.get("animation_duration_scale", 1.0))))
+        except (TypeError, ValueError):
+            self.settings["animation_duration_scale"] = 1.0
         recent = self.settings.get("recent_network_addresses")
         if not isinstance(recent, list):
             recent = []

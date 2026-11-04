@@ -93,9 +93,16 @@ SmartCast 是一个面向 Windows 的 Android 设备投屏与管理工作台。�
 - **历史记录持久化**，支持按设备 / 类型筛选，打开文件、打开目录、删除记录、删除文件（二次确认，删记录与删文件互不影响）。
 - 文件被用户手动删除时，历史记录会标记为“缺失”而不是报错。
 
+### 视觉与背景
+
+- 浅色主题（无边框圆角窗口）、自定义标题栏、右下角缩放。
+- **页面动态背景**：每个页面可放一张自己的插画，切换页面自动更换；
+  图片缺失自动回退纯色，不影响启动。
+- 三种展示模式（全区域 / 右侧装饰 / 水印），支持透明度、位置与浅色遮罩调节。
+- 功能面板半透明，插画自然透出，文字对比度保持充足。
+
 ### 其他
 
-- 浅色主题（跟随系统窗口圆角的无边框界面）、自定义标题栏、右下角缩放。
 - 内置“使用指南”页面，覆盖 USB 与 Wi-Fi 两种连接方式。
 - 运行日志页面，支持查看、清空、导出。
 - 选项框 / 数字框**禁用鼠标滚轮**，避免浏览页面时误改参数。
@@ -228,10 +235,36 @@ SmartCast/
 ├── resources/
 │   ├── adb/                    # 内置 ADB
 │   ├── scrcpy/                 # 内置 scrcpy 及依赖
-│   └── assets/                 # 应用图标
+│   └── assets/
+│       ├── app-icon.png        # 应用图标
+│       └── illustrations/      # 背景插画（用户自行放置）
 ├── tests/                      # 单元测试 + UI 冒烟测试
 └── docs/                       # 使用、架构、开发文档
 ```
+
+## 自定义页面背景
+
+把图片放到 `resources/assets/illustrations/<页面>/background.png`，重启后切换页面即可看到效果：
+
+```
+resources/assets/illustrations/
+├── home/background.png       首页
+├── devices/background.png    设备管理
+├── casting/background.png    投屏中心
+├── control/background.png    设备控制（详情页）
+├── media/background.png      媒体管理
+├── settings/background.png   投屏设置 / 设置
+└── logs/background.png       运行日志
+```
+
+- 图片建议 16:9 横图、宽度 1600px 以上，单张 < 5MB；
+- 超过 2560px 宽会自动缩小解码以节省内存；
+- 图片缺失或损坏时自动回退纯色背景，不会报错；
+- 各页面的默认展示模式、透明度、遮罩集中在 `ui/background_manager.py` 的 `BACKGROUND_SPECS`；
+- 也可在 `settings.json` 中调整 `background_enabled` / `background_opacity` /
+  `background_mode`（fill / right / watermark）/ `background_position`（left / center / right）。
+
+详见 [resources/assets/illustrations/README.md](resources/assets/illustrations/README.md)。
 
 ## 技术架构
 

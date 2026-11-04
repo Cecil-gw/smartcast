@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QFrame, QLabel
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPushButton
 
 from core.device_info import DeviceInfo
 from core.encoder_detector import CodecCandidate
@@ -29,8 +29,8 @@ with tempfile.TemporaryDirectory() as temp:
         overview = window.overview_page
         stats = [child for child in overview.findChildren(QFrame) if child.objectName() == "StatCard"]
         actions = [child for child in overview.findChildren(QFrame) if child.objectName() == "ActionCard"]
-        assert len(stats) == 4
-        assert len(actions) == 4
+        assert len(stats) == 4, len(stats)
+        assert len(actions) == 4, len(actions)
 
         def bounds(widget) -> tuple[int, int, int, int]:
             top_left = widget.mapTo(overview, widget.rect().topLeft())
