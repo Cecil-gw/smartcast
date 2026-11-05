@@ -31,3 +31,6 @@ resources/scrcpy/open_a_terminal_here.bat
 # OS junk
 Thumbs.db
 .DS_Store
+
+# GitHub Releases 存放安装包（不入库）
+release/SmartCastSetup.exe
