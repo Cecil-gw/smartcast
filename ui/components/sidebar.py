@@ -29,7 +29,8 @@ class Sidebar(QWidget):
         layout = QVBoxLayout(self)
         # Top padding equals the custom title-bar height (40px) so the
         # navigation starts level with the content on the right.
-        layout.setContentsMargins(14, 56, 14, 12)
+        # 顶部与右侧内容区对齐（标题栏高度 40px，内容顶部无额外留白）
+        layout.setContentsMargins(14, 40, 14, 12)
         layout.setSpacing(6)
 
 

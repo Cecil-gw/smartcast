@@ -2,8 +2,19 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 
+from ui.components.square_button import SquareActionButton
 from ui.icons import icon
 from ui.theme import COLORS
 
@@ -19,10 +30,74 @@ ACTIONS = (
 )
 
 
-class ControlPanelCard(QFrame):
-    """手机控制按钮面板；跟随当前主设备。"""
+class ResponsiveButtonGrid(QWidget):
+    """按宽度自动换行的按钮网格。
 
-    control_requested = Signal(str, str)  # serial, action
+    使用逐行 QHBoxLayout + 末尾弹簧，保证按钮间距恒定为 4px，
+    窗口放大会留白在右侧而不是把按钮拉开。
+    """
+
+    def __init__(self, cell: int = 64, h_gap: int = 15, v_gap: int = 4,
+                 max_columns: int = 4, parent=None) -> None:
+        super().__init__(parent)
+        self.cell = cell
+        self.h_gap = h_gap
+        self.v_gap = v_gap
+        self.max_columns = max_columns
+        self._widgets: list = []
+        self._columns = 0
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(v_gap)
+        self._rows: list[QHBoxLayout] = []
+
+    def set_widgets(self, widgets: list) -> None:
+        self._widgets = list(widgets)
+        self._relayout(force=True)
+
+    def relayout_for_width(self, width: int) -> None:
+        self._relayout(available=width)
+
+    def _clear(self) -> None:
+        while self._layout.count():
+            item = self._layout.takeAt(0)
+            sub = item.layout()
+            if sub is not None:
+                while sub.count():
+                    sub.takeAt(0)
+                sub.deleteLater()
+        self._rows.clear()
+
+    def _relayout(self, force: bool = False, available: int | None = None) -> None:
+        if not self._widgets:
+            return
+        if available is None:
+            available = self.width() or 400
+        columns = max(1, min(self.max_columns, len(self._widgets),
+                             max(1, (available + self.h_gap) // (self.cell + self.h_gap))))
+        if not force and columns == self._columns:
+            return
+        self._columns = columns
+        self._clear()
+        for start in range(0, len(self._widgets), columns):
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(self.h_gap)
+            for widget in self._widgets[start:start + columns]:
+                row.addWidget(widget)
+            row.addStretch(1)
+            self._layout.addLayout(row)
+            self._rows.append(row)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._relayout(available=self.width())
+
+
+class ControlPanelCard(QFrame):
+    """手机控制：方形图标按钮，自适应换行。"""
+
+    control_requested = Signal(str, str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -30,34 +105,33 @@ class ControlPanelCard(QFrame):
         self.serial: str | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
         self.hint = QLabel("未连接设备")
         self.hint.setObjectName("Caption")
         self.hint.setWordWrap(True)
         layout.addWidget(self.hint)
 
-        grid = QGridLayout()
-        grid.setSpacing(8)
-        self.buttons: list[QPushButton] = []
-        for index, (action, text, icon_name) in enumerate(ACTIONS):
-            button = QPushButton(text)
-            button.setObjectName("GhostButton")
-            button.setIcon(icon(icon_name, COLORS["muted"], 14))
-            button.setIconSize(QSize(14, 14))
-            button.setCursor(Qt.PointingHandCursor)
-            button.setEnabled(False)
+        self.buttons: list[SquareActionButton] = []
+        for action, text, icon_name in ACTIONS:
+            button = SquareActionButton(text, icon_name)
             button.clicked.connect(
                 lambda checked=False, a=action: self.serial and self.control_requested.emit(self.serial, a)
             )
-            grid.addWidget(button, index // 4, index % 4)
             self.buttons.append(button)
-        layout.addLayout(grid)
+
+        self.grid = ResponsiveButtonGrid(cell=64, h_gap=30, v_gap=4, max_columns=4)
+        self.grid.set_widgets(self.buttons)
+        layout.addWidget(self.grid, 0, Qt.AlignLeft)
 
         note = QLabel("提示：电源菜单会调出系统电源选项，可能导致熄屏")
         note.setObjectName("Caption")
         note.setWordWrap(True)
         layout.addWidget(note)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.grid.relayout_for_width(self.width() - 32)
 
     def set_device(self, serial: str | None, device_name: str = "") -> None:
         self.serial = serial
@@ -70,10 +144,10 @@ class ControlPanelCard(QFrame):
 
 
 class ScreenControlCard(QFrame):
-    """屏幕控制：亮度 / 旋转 / 常亮 / 恢复 / 投屏增强。"""
+    """屏幕控制：亮度滑杆 + 方形操作按钮网格。"""
 
-    screen_op_requested = Signal(str, str, object)  # serial, op, value
-    control_requested = Signal(str, str)  # serial, "wakeup"
+    screen_op_requested = Signal(str, str, object)
+    control_requested = Signal(str, str)
     screen_off_cast_requested = Signal(str)
     fullscreen_requested = Signal(str)
     screenshot_requested = Signal(str)
@@ -81,133 +155,90 @@ class ScreenControlCard(QFrame):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QSlider
-
         self.setObjectName("SettingsSection")
         self.serial: str | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
 
+        # ---- 亮度 ----
         brightness_row = QHBoxLayout()
         brightness_row.setSpacing(8)
         self.auto_box = QCheckBox("自动亮度")
         self.auto_box.toggled.connect(self._emit_auto)
         brightness_row.addWidget(self.auto_box)
+
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(1, 255)
         self.slider.setPageStep(16)
         self.slider.setEnabled(False)
         self.slider.sliderReleased.connect(self._emit_brightness)
         brightness_row.addWidget(self.slider, 1)
+
         self.value_label = QLabel("—")
         self.value_label.setObjectName("InfoValue")
+        self.value_label.setMinimumWidth(30)
         brightness_row.addWidget(self.value_label)
-        restore = QPushButton("恢复原始亮度")
-        restore.setObjectName("GhostButton")
-        restore.setCursor(Qt.PointingHandCursor)
-        restore.clicked.connect(lambda: self._emit_op("restore_all", None))
-        brightness_row.addWidget(restore)
         layout.addLayout(brightness_row)
 
-        from PySide6.QtWidgets import QGridLayout
-
-        rotation_row = QGridLayout()
-        rotation_row.setHorizontalSpacing(8)
-        rotation_row.setVerticalSpacing(6)
-        self._rotation_buttons = []
-        for index, (mode, text) in enumerate((("auto", "自动旋转"), ("portrait", "竖屏"), ("landscape", "横屏"))):
-            button = QPushButton(text)
-            button.setObjectName("GhostButton")
-            button.setCursor(Qt.PointingHandCursor)
-            button.setEnabled(False)
-            button.setMinimumHeight(30)
+        # ---- 操作按钮（图标在上、文字在下） ----
+        self._rotation_buttons: list[SquareActionButton] = []
+        for mode, text, icon_name in (
+            ("auto", "自动旋转", "refresh"),
+            ("portrait", "竖屏", "phone"),
+            ("landscape", "横屏", "screen"),
+        ):
+            button = SquareActionButton(text, icon_name)
             button.clicked.connect(lambda checked=False, m=mode: self._emit_op("set_rotation", m))
-            rotation_row.addWidget(button, 0, index)
             self._rotation_buttons.append(button)
-        always = QPushButton("屏幕常亮")
-        always.setObjectName("GhostButton")
-        always.setCursor(Qt.PointingHandCursor)
-        always.setEnabled(False)
-        always.setMinimumHeight(30)
-        always.clicked.connect(lambda: self._emit_op("always_on", None))
-        rotation_row.addWidget(always, 1, 0)
-        self._timeout_button = always
-        restore_timeout = QPushButton("恢复休眠时间")
-        restore_timeout.setObjectName("GhostButton")
-        restore_timeout.setCursor(Qt.PointingHandCursor)
-        restore_timeout.setEnabled(False)
-        restore_timeout.setMinimumHeight(30)
-        restore_timeout.clicked.connect(lambda: self._emit_op("restore_timeout", None))
-        rotation_row.addWidget(restore_timeout, 1, 1)
-        self._restore_timeout_button = restore_timeout
-        wakeup = QPushButton("唤醒屏幕")
-        wakeup.setObjectName("GhostButton")
-        wakeup.setIcon(icon("sun", COLORS["muted"], 14))
-        wakeup.setIconSize(QSize(14, 14))
-        wakeup.setCursor(Qt.PointingHandCursor)
-        wakeup.setEnabled(False)
-        wakeup.setMinimumHeight(30)
-        wakeup.clicked.connect(
+
+        self._always_button = SquareActionButton("屏幕常亮", "sun")
+        self._always_button.clicked.connect(lambda: self._emit_op("always_on", None))
+        self._wakeup_button = SquareActionButton("唤醒屏幕", "sun")
+        self._wakeup_button.clicked.connect(
             lambda: self.serial and self.control_requested.emit(self.serial, "wakeup")
         )
-        rotation_row.addWidget(wakeup, 1, 2)
-        self._wakeup_button = wakeup
-        for column in range(3):
-            rotation_row.setColumnStretch(column, 1)
-        layout.addLayout(rotation_row)
+        self._off_cast_button = SquareActionButton("熄屏投屏", "screen")
+        self._off_cast_button.clicked.connect(
+            lambda: self.serial and self.screen_off_cast_requested.emit(self.serial)
+        )
+        self._fullscreen_button = SquareActionButton("全屏切换", "monitor")
+        self._fullscreen_button.clicked.connect(
+            lambda: self.serial and self.fullscreen_requested.emit(self.serial)
+        )
+        self._screenshot_button = SquareActionButton("截图", "copy")
+        self._screenshot_button.clicked.connect(
+            lambda: self.serial and self.screenshot_requested.emit(self.serial)
+        )
+        self.record_button = SquareActionButton("开始录屏", "bolt")
+        self.record_button.clicked.connect(
+            lambda: self.serial and self.record_requested.emit(self.serial)
+        )
+        self._restore_button = SquareActionButton("恢复亮度", "refresh")
+        self._restore_button.clicked.connect(lambda: self._emit_op("restore_all", None))
 
-        cast_note = QLabel("投屏增强（需投屏会话运行中）：")
-        cast_note.setObjectName("Caption")
-        cast_note.setWordWrap(True)
-        layout.addWidget(cast_note)
-        cast_row = QGridLayout()
-        cast_row.setHorizontalSpacing(8)
-        cast_row.setVerticalSpacing(6)
-        off_cast = QPushButton("熄屏投屏")
-        off_cast.setObjectName("GhostButton")
-        off_cast.setCursor(Qt.PointingHandCursor)
-        off_cast.setEnabled(False)
-        off_cast.clicked.connect(lambda: self.serial and self.screen_off_cast_requested.emit(self.serial))
-        off_cast.setMinimumHeight(30)
-        cast_row.addWidget(off_cast, 0, 0)
-        self._off_cast_button = off_cast
-        fullscreen = QPushButton("全屏切换")
-        fullscreen.setObjectName("GhostButton")
-        fullscreen.setCursor(Qt.PointingHandCursor)
-        fullscreen.clicked.connect(lambda: self.serial and self.fullscreen_requested.emit(self.serial))
-        fullscreen.setMinimumHeight(30)
-        cast_row.addWidget(fullscreen, 0, 1)
-        screenshot = QPushButton("截图")
-        screenshot.setObjectName("GhostButton")
-        screenshot.setIcon(icon("copy", COLORS["muted"], 14))
-        screenshot.setIconSize(QSize(14, 14))
-        screenshot.setCursor(Qt.PointingHandCursor)
-        screenshot.setEnabled(False)
-        screenshot.clicked.connect(lambda: self.serial and self.screenshot_requested.emit(self.serial))
-        screenshot.setMinimumHeight(30)
-        cast_row.addWidget(screenshot, 1, 0)
-        self._screenshot_button = screenshot
-        self.record_button = QPushButton("开始录屏")
-        self.record_button.setObjectName("GhostButton")
-        self.record_button.setIcon(icon("bolt", COLORS["muted"], 14))
-        self.record_button.setIconSize(QSize(14, 14))
-        self.record_button.setCursor(Qt.PointingHandCursor)
-        self.record_button.setEnabled(False)
-        self.record_button.clicked.connect(lambda: self.serial and self.record_requested.emit(self.serial))
-        self.record_button.setMinimumHeight(30)
-        cast_row.addWidget(self.record_button, 1, 1)
-        cast_row.setColumnStretch(0, 1)
-        cast_row.setColumnStretch(1, 1)
-        layout.addLayout(cast_row)
+        self._action_widgets = (
+            self._rotation_buttons
+            + [
+                self._always_button,
+                self._wakeup_button,
+                self._off_cast_button,
+                self._fullscreen_button,
+                self._screenshot_button,
+                self.record_button,
+                self._restore_button,
+            ]
+        )
+        self.grid = ResponsiveButtonGrid(cell=64, h_gap=30, v_gap=4, max_columns=5)
+        self.grid.set_widgets(self._action_widgets)
+        layout.addWidget(self.grid, 0, Qt.AlignLeft)
 
-        self._extra_buttons = [
-            self.slider, restore, always, restore_timeout, wakeup,
-            off_cast, screenshot, self.record_button,
-        ] + self._rotation_buttons
+        self._extra_widgets = list(self._action_widgets) + [self.slider]
 
-    def _enabled(self) -> bool:
-        return bool(self.serial)
+    # ------------------------------------------------------------------
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.grid.relayout_for_width(self.width() - 32)
 
     def _emit_op(self, op: str, value) -> None:
         if self.serial:
@@ -225,7 +256,7 @@ class ScreenControlCard(QFrame):
     def set_device(self, serial: str | None) -> None:
         self.serial = serial
         enabled = bool(serial)
-        for widget in self._extra_buttons:
+        for widget in self._extra_widgets:
             widget.setEnabled(enabled)
         if not enabled:
             self.slider.setValue(1)

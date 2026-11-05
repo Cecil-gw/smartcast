@@ -9,6 +9,7 @@ from PySide6.QtCore import (
     QAbstractAnimation,
     Q_ARG,
     QEasingCurve,
+    QRect,
     QMetaObject,
     QParallelAnimationGroup,
     QObject,
@@ -144,6 +145,7 @@ class MainWindow(QMainWindow):
         self.detail_serial: str | None = None
         self._log_handler: QtLogHandler | None = None
         self._build_ui()
+        self._restore_window_geometry()
         self.cards = self.device_page.cards
         self.status_label = self.status_bar.message_label
         self._connect_signals()
@@ -239,7 +241,7 @@ class MainWindow(QMainWindow):
         }
         settings = self.config.settings
         self.background.set_enabled(bool(settings.get("background_enabled", True)))
-        self.background.animations_enabled = self.animations_enabled
+        self.background.set_animations_enabled(self.animations_enabled)
         self.background.animation_scale = self.animation_scale
         self.background.set_opacity(float(settings.get("background_opacity", 1.0)))
         if settings.get("background_mode"):
@@ -1076,6 +1078,47 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_size_grip"):
             grip = self._size_grip
             grip.move(self.centralWidget().width() - grip.width(), self.centralWidget().height() - grip.height())
+        if hasattr(self, "background") and hasattr(self, "page_host"):
+            self.background.on_host_resized(self.page_host.width())
+
+    def _restore_window_geometry(self) -> None:
+        """恢复上次关闭时的窗口位置与大小（校验屏幕范围，避免恢复到屏幕外）。"""
+        geometry = self.config.settings.get("window_geometry") or {}
+        try:
+            x = int(geometry["x"])
+            y = int(geometry["y"])
+            width = int(geometry["width"])
+            height = int(geometry["height"])
+        except (KeyError, TypeError, ValueError):
+            return
+        if width < 900 or height < 640:
+            return
+
+        rect = QRect(x, y, width, height)
+        visible = any(
+            screen.availableGeometry().intersects(rect)
+            for screen in QApplication.screens()
+        )
+        if not visible:
+            return  # 显示器变化时回退到默认尺寸
+        self.setGeometry(rect)
+        if self.config.settings.get("window_maximized"):
+            self.showMaximized()
+
+    def _remember_window_geometry(self) -> None:
+        """记录当前窗口位置与大小，供下次启动恢复。"""
+        if self.isMaximized():
+            rect = self.normalGeometry()
+            self.config.settings["window_maximized"] = True
+        else:
+            rect = self.geometry()
+            self.config.settings["window_maximized"] = False
+        self.config.settings["window_geometry"] = {
+            "x": rect.x(),
+            "y": rect.y(),
+            "width": rect.width(),
+            "height": rect.height(),
+        }
 
     def _toggle_maximize(self) -> None:
         if self.isMaximized():
@@ -1370,6 +1413,7 @@ class MainWindow(QMainWindow):
         self.scrcpy.shutdown()
 
         try:
+            self._remember_window_geometry()
             self.config.save()
         except OSError as error:
             # 配置目录可能已被清理（测试环境/临时目录），不应影响关闭

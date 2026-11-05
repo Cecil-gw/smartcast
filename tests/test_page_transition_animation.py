@@ -255,6 +255,41 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class WindowGeometryConfigTests(unittest.TestCase):
+    def test_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = ConfigManager(Path(tmp))
+            self.assertEqual(cfg.settings["window_geometry"], {})
+            self.assertFalse(cfg.settings["window_maximized"])
+
+    def test_valid_geometry_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "settings.json"
+            path.write_text(
+                '{"window_geometry": {"x": 10, "y": 20, "width": 1200, "height": 800}}',
+                encoding="utf-8",
+            )
+            cfg = ConfigManager(Path(tmp))
+            self.assertEqual(cfg.settings["window_geometry"]["width"], 1200)
+
+    def test_invalid_geometry_dropped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "settings.json"
+            path.write_text('{"window_geometry": "junk"}', encoding="utf-8")
+            cfg = ConfigManager(Path(tmp))
+            self.assertEqual(cfg.settings["window_geometry"], {})
+
+    def test_geometry_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = ConfigManager(Path(tmp))
+            cfg.settings["window_geometry"] = {"x": 100, "y": 60, "width": 1280, "height": 820}
+            cfg.settings["window_maximized"] = True
+            cfg.save()
+            reloaded = ConfigManager(Path(tmp))
+            self.assertEqual(reloaded.settings["window_geometry"]["x"], 100)
+            self.assertTrue(reloaded.settings["window_maximized"])
+
+
 def tearDownModule() -> None:
     """确保测试窗口全部销毁，避免解释器退出时 Qt 对象析构崩溃。"""
     import gc

@@ -76,18 +76,9 @@ class OverviewPage(QWidget):
 
         # 右侧留白给人物立绘；内容集中在左侧
         root = QVBoxLayout(content)
-        root.setContentsMargins(20, 16, 20, 16)
+        # 内容顶到最上方（背景层位置不受影响）
+        root.setContentsMargins(20, 0, 20, 16)
         root.setSpacing(14)
-
-        title_column = QVBoxLayout()
-        title_column.setSpacing(3)
-        title = QLabel("首页")
-        title.setObjectName("PageTitle")
-        subtitle = QLabel("快速了解设备与投屏状态，进入常用工作台")
-        subtitle.setObjectName("PageSubtitle")
-        title_column.addWidget(title)
-        title_column.addWidget(subtitle)
-        root.addLayout(title_column)
 
         device_title = QLabel("设备概览")
         device_title.setObjectName("SectionTitle")
@@ -254,61 +245,46 @@ class OverviewPage(QWidget):
                 item.widget().deleteLater()
 
     def _make_small_card(self, device: DeviceInfo, state: str) -> QFrame:
+        """单行紧凑卡片：机型图标 + 名称 + 开始投屏。"""
+        from core.device_info import device_screen_kind
+
+        kind = device_screen_kind(device)  # phone / tablet
+
         card = QFrame()
         card.setObjectName("DeviceCard")
-        card.setFixedWidth(160)
-        card.setMinimumHeight(150)
-        card.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-        column = QVBoxLayout(card)
-        column.setContentsMargins(12, 12, 12, 12)
-        column.setSpacing(6)
-        column.addStretch(1)
+        card.setFixedHeight(54)
+        card.setMinimumWidth(210)
+        card.setMaximumWidth(320)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        # head: icon + name
-        head = QHBoxLayout()
-        head.setSpacing(8)
-        icon_tile = QFrame()
-        icon_tile.setObjectName("IconBadge")
-        icon_tile.setFixedSize(34, 34)
-        icon_layout = QHBoxLayout(icon_tile)
-        icon_layout.setContentsMargins(0, 0, 0, 0)
-        phone = QLabel()
-        phone.setPixmap(icon("phone", COLORS["accent_hover"], 18).pixmap(18, 18))
-        phone.setAlignment(Qt.AlignCenter)
-        icon_layout.addWidget(phone)
-        head.addWidget(icon_tile)
+        row = QHBoxLayout(card)
+        row.setContentsMargins(10, 6, 10, 6)
+        row.setSpacing(9)
+
+        icon_badge = QLabel()
+        icon_badge.setFixedSize(30, 30)
+        icon_badge.setAlignment(Qt.AlignCenter)
+        icon_badge.setPixmap(icon(kind, COLORS["accent_hover"], 20).pixmap(20, 20))
+        row.addWidget(icon_badge, 0, Qt.AlignVCenter)
+
         name = QLabel(f"{device.manufacturer} {device.model}".strip())
         name.setObjectName("InfoValue")
-        name.setWordWrap(True)
-        head.addWidget(name, 1)
-        column.addLayout(head)
+        name.setWordWrap(False)
+        name.setMinimumWidth(0)
+        name.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        row.addWidget(name, 1)
 
-        # pills
-        pills = QHBoxLayout()
-        pills.setSpacing(5)
-        conn = StatusPill("Wi-Fi" if device.connection_type == "wifi" else "USB", "info")
-        pills.addWidget(conn)
         online = device.state == "device"
-        state_pill = StatusPill(
-            "已连接" if online else "未授权" if device.state == "unauthorized" else "离线",
-            "success" if online else "warning" if device.state in {"unauthorized", "offline"} else "error",
-        )
-        pills.addWidget(state_pill)
-        pills.addStretch()
-        column.addLayout(pills)
-
-        column.addStretch(1)
-
-        # buttons stacked vertically
-        start_btn = QPushButton("开始投屏" if online else "投屏不可用")
+        start_btn = QPushButton("开始投屏" if online else "不可用")
         start_btn.setObjectName("PrimaryButton")
         start_btn.setFixedHeight(28)
+        start_btn.setMinimumWidth(78)
         start_btn.setCursor(Qt.PointingHandCursor)
         start_btn.setEnabled(online and state in ("idle", "error"))
         start_btn.clicked.connect(
             lambda checked, s=device.serial: self.start_requested.emit(s)
         )
-        column.addWidget(start_btn)
+        row.addWidget(start_btn, 0, Qt.AlignVCenter)
         return card
 
     def set_device_cards(self, devices: list[DeviceInfo], cast_states: dict[str, str]) -> None:

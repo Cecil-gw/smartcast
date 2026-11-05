@@ -45,6 +45,8 @@ class ConfigManager:
             "background_opacity": 1.0,
             "background_mode": "",
             "background_position": "",
+            "window_geometry": {},
+            "window_maximized": False,
             "animations_enabled": True,
             "animation_duration_scale": 1.0,
             "scan_interval": 2,
@@ -88,6 +90,18 @@ class ConfigManager:
         self.settings["background_mode"] = mode if mode in {"fill", "right", "watermark"} else ""
         position = str(self.settings.get("background_position", "") or "")
         self.settings["background_position"] = position if position in {"left", "center", "right"} else ""
+        geometry = self.settings.get("window_geometry")
+        if not isinstance(geometry, dict):
+            geometry = {}
+        cleaned_geometry = {}
+        for key in ("x", "y", "width", "height"):
+            try:
+                cleaned_geometry[key] = int(geometry.get(key))
+            except (TypeError, ValueError):
+                cleaned_geometry = {}
+                break
+        self.settings["window_geometry"] = cleaned_geometry
+        self.settings["window_maximized"] = bool(self.settings.get("window_maximized", False))
         self.settings["animations_enabled"] = bool(self.settings.get("animations_enabled", True))
         try:
             self.settings["animation_duration_scale"] = max(0.0, min(2.0, float(self.settings.get("animation_duration_scale", 1.0))))

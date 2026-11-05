@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import (
+    Property,
     QEasingCurve,
     QObject,
     QRect,
@@ -275,6 +276,31 @@ QPushButton#QuickAction:hover {{
 QPushButton#QuickAction:pressed {{
     background: {COLORS['accent_soft']};
 }}
+QWidget#SquareAction {{
+    background: rgba(255, 255, 255, 0.42);
+    border: 1px solid rgba(213, 224, 217, 0.65);
+    border-radius: 8px;
+}}
+QWidget#SquareAction:hover {{
+    background: {COLORS['accent_soft']};
+    border-color: rgba(193, 214, 200, 0.9);
+}}
+QWidget#SquareAction:pressed {{
+    background: #D6E6DC;
+}}
+QWidget#SquareAction[disabled="true"] {{
+    background: rgba(255, 255, 255, 0.22);
+    border-color: rgba(213, 224, 217, 0.4);
+}}
+QLabel#SquareActionText {{
+    color: {COLORS['text']};
+    font-size: 10px;
+    font-weight: 600;
+    background: transparent;
+}}
+QLabel#SquareActionText[disabled="true"] {{
+    color: {COLORS['faint']};
+}}
 QPushButton#NavButton {{
     background: transparent;
     color: {COLORS['muted']};
@@ -459,6 +485,7 @@ class BackgroundColorLayer(QWidget):
         self._theme = "dark" if theme == "dark" else "light"
         self.update()
 
+
     def set_mask_alpha(self, alpha: int) -> None:
         self._mask_alpha = max(0, min(255, int(alpha)))
         self.update()
@@ -489,6 +516,9 @@ class BackgroundLayer(QWidget):
         self._theme = "light"
         self._fill_base = False
         self._offset_x_ratio = 0.0
+        self._zoom = 1.0
+        self._zoom_anim = None
+        self._animations_enabled = True
 
     # -- setters -------------------------------------------------------
     def set_source(self, pixmap: QPixmap | None) -> None:
@@ -524,6 +554,32 @@ class BackgroundLayer(QWidget):
     def set_theme(self, theme: str) -> None:
         self._theme = "dark" if theme == "dark" else "light"
         self.update()
+
+    # -- 缩放过渡（窗口大小变化时图片平滑缩放）-------------------
+    def get_zoom(self) -> float:
+        return self._zoom
+
+    def set_zoom(self, value: float) -> None:
+        self._zoom = float(value)
+        self.update()
+
+    def animate_zoom(self, start: float, duration: int = 400, enabled: bool = True) -> None:
+        from PySide6.QtCore import QPropertyAnimation  # 局部导入避免循环
+
+        if self._zoom_anim is not None:
+            self._zoom_anim.stop()
+        if not enabled or duration <= 0:
+            self.set_zoom(1.0)
+            return
+        anim = QPropertyAnimation(self, b"zoom", self)
+        anim.setDuration(duration)
+        anim.setStartValue(max(0.6, min(1.6, start)))
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.start()
+        self._zoom_anim = anim
+
+    zoom = Property(float, get_zoom, set_zoom)
 
     def set_offset_x_ratio(self, ratio: float) -> None:
         self._offset_x_ratio = max(-0.5, min(0.5, float(ratio)))
@@ -626,6 +682,12 @@ class BackgroundLayer(QWidget):
         painter.setOpacity(self._opacity)
         target = self._target_rect()
         if not target.isEmpty() and self._scaled is not None and not self._scaled.isNull():
+            if abs(self._zoom - 1.0) > 0.001:
+                anchor_x = target.right()
+                anchor_y = target.bottom()
+                painter.translate(anchor_x, anchor_y)
+                painter.scale(self._zoom, self._zoom)
+                painter.translate(-anchor_x, -anchor_y)
             painter.drawPixmap(target.topLeft(), self._scaled)
         painter.setOpacity(1.0)
 
@@ -660,6 +722,7 @@ class BackgroundManager(QObject):
             layout = QGridLayout(page_host)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(0)
+        self._host_width = max(1, page_host.width())
         layout.addWidget(self.color_layer, 0, 0)
         layout.addWidget(self.layer, 0, 0)
         layout.addWidget(self.fade_layer, 0, 0)
@@ -796,6 +859,23 @@ class BackgroundManager(QObject):
         self._mode_override = mode if mode in DISPLAY_MODES else ""
         if self._current_key:
             self.set_background(self._current_key)
+
+    def on_host_resized(self, new_width: int) -> None:
+        """窗口尺寸变化时驱动背景图缩放过渡（400ms）。"""
+        old_width = getattr(self, "_host_width", 0)
+        self._host_width = max(1, int(new_width))
+        if not self.animations_enabled or old_width <= 0 or new_width <= 0:
+            return
+        ratio = old_width / float(new_width)
+        if 0.6 <= ratio <= 1.6 and abs(ratio - 1.0) > 0.01:
+            for layer in (self.layer, self.fade_layer):
+                layer.animate_zoom(ratio, duration=400, enabled=True)
+
+    def set_animations_enabled(self, enabled: bool) -> None:
+        """同步动画开关到各绘制层（关闭后缩放立即生效，无过渡）。"""
+        self.animations_enabled = bool(enabled)
+        for layer in (self.layer, self.fade_layer):
+            layer._animations_enabled = self.animations_enabled
 
     def set_theme(self, theme: str) -> None:
         self.theme = "dark" if theme == "dark" else "light"

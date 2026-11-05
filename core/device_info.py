@@ -90,3 +90,26 @@ class DeviceInfoReader:
                 if line.startswith(prefix):
                     return line.split(":", 1)[1].strip()
         return next((line for line in lines if line), "")
+
+
+def device_screen_kind(device: "DeviceInfo") -> str:
+    """根据分辨率与屏幕密度估算设备类型，返回 "tablet" 或 "phone"。
+
+    对角线英寸 = sqrt(w^2 + h^2) / dpi，>= 7 英寸视为平板。
+    数据缺失或无法解析时按手机处理。
+    """
+    import math
+    import re
+
+    resolution = (device.resolution or "").strip()
+    density = (device.density or "").strip()
+    match = re.match(r"(\d+)\s*[x×]\s*(\d+)", resolution)
+    try:
+        dpi = float(re.sub(r"[^0-9.]", "", density))
+    except (TypeError, ValueError):
+        dpi = 0.0
+    if not match or dpi <= 0:
+        return "phone"
+    width, height = int(match.group(1)), int(match.group(2))
+    inches = math.hypot(width, height) / dpi
+    return "tablet" if inches >= 7.0 else "phone"

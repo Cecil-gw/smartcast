@@ -46,19 +46,13 @@ class SettingsPage(QWidget):
 
         header = QHBoxLayout()
         header.setSpacing(11)
-        back = QPushButton("返回设备")
-        back.setObjectName("GhostButton")
-        back.setIcon(icon("back", COLORS["muted"], 15))
-        back.setIconSize(QSize(15, 15))
-        back.setCursor(Qt.PointingHandCursor)
-        back.clicked.connect(self.back_requested)
-        header.addWidget(back)
         title_column = QVBoxLayout()
         title_column.setSpacing(2)
         title = QLabel("设置")
         title.setObjectName("PageTitle")
         subtitle = QLabel("管理 ADB、scrcpy、默认投屏参数与设备扫描行为")
         subtitle.setObjectName("PageSubtitle")
+        subtitle.setWordWrap(True)
         title_column.addWidget(title)
         title_column.addWidget(subtitle)
         header.addLayout(title_column, 1)
@@ -78,10 +72,10 @@ class SettingsPage(QWidget):
         content_host = QWidget()
         center = QHBoxLayout(content_host)
         center.setContentsMargins(0, 0, 4, 0)
-        center.addStretch(1)
         content = QWidget()
         content.setMaximumWidth(980)
-        content.setMinimumWidth(680)
+        content.setMinimumWidth(460)
+        self.content = content
         content_layout = QVBoxLayout(content)
         content_layout.addWidget(self._build_adb_section())
         content_layout.addWidget(self._build_scrcpy_section())
@@ -465,4 +459,6 @@ class SettingsPage(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if hasattr(self, "content"):
-            self.content.setMaximumWidth(max(420, int(self.width() * 0.7)))
+            # 最大宽度不得小于最小宽度，否则布局挤压导致内容被裁
+            cap = int(self.width() * 0.7)
+            self.content.setMaximumWidth(max(self.content.minimumWidth(), cap))
