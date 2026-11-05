@@ -86,15 +86,16 @@ QFrame#HeaderStatusChip {{
 }}
 QFrame#StatusBar {{ background: transparent; border: none; border-top: 1px solid {COLORS['border']}; }}
 QFrame#Card, QFrame#QuickPanel, QFrame#SettingsSection, QFrame#HeroCard,
-QFrame#ConfigCard, QFrame#StatCard, QFrame#ActionCard, QFrame#DeviceCard {{
+QFrame#StatCard, QFrame#ActionCard, QFrame#DeviceCard {{
     background: {COLORS['card']};
+QFrame#ConfigCard {{ background: rgba(255, 255, 255, 0.40); }}
     border: 1px solid {COLORS['border']};
     border-radius: 10px;
 }}
 QFrame#QuickPanel {{ background: transparent; border: none; }}
 /* 功能面板半透明，让背景插画自然透出；文字仍为深色，对比度充足 */
-QFrame#SettingsSection {{ background: rgba(255, 255, 255, 0.62); }}
-QFrame#SettingsSection:hover {{ background: rgba(255, 255, 255, 0.74); }}
+QFrame#SettingsSection {{ background: rgba(255, 255, 255, 0.25); }}
+QFrame#SettingsSection:hover {{ background: rgba(255, 255, 255, 0.45); }}
 QFrame#DeviceCard:hover {{ background: #FBFDFB; border-color: {COLORS['border_strong']}; }}
 QFrame#DeviceCard[casting="true"] {{ border-color: #A7C7B7; background: #F7FBF8; }}
 QFrame#InfoTile {{ background: transparent; border: none; }}
@@ -129,6 +130,7 @@ QLabel#ProductName {{ font-size: 17px; font-weight: 700; }}
 QLabel#PageTitle {{ font-size: 22px; font-weight: 700; }}
 QLabel#PageSubtitle {{ color: {COLORS['muted']}; font-size: 12px; }}
 QLabel#SectionTitle {{ font-size: 15px; font-weight: 650; }}
+QLabel#GuideSectionTitle {{ font-size: 17px; font-weight: 700; }}
 QLabel#SectionDescription {{ color: {COLORS['muted']}; font-size: 12px; }}
 QLabel#CardTitle {{ font-size: 16px; font-weight: 700; }}
 QLabel#Muted {{ color: {COLORS['muted']}; }}
@@ -355,7 +357,7 @@ QScrollBar::handle:horizontal {{ background: #C9D5CD; min-width: 32px; border-ra
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 
 QTextEdit#LogView {{
-    background: #F9FBF9;
+    background: rgba(255, 255, 255, 0.40);
     border: 1px solid {COLORS['border']};
     border-radius: 9px;
     color: {COLORS['muted']};
@@ -409,6 +411,7 @@ class BackgroundSpec:
     position: str = POSITION_RIGHT
     opacity: float = 0.55
     mask_alpha: int = 42
+    offset_x_ratio: float = 0.0  # 整体向右偏移（占页面宽度的比例），用于微调人物位置
 
     @property
     def relative_path(self) -> str:
@@ -424,7 +427,10 @@ BACKGROUND_SPECS: dict[str, BackgroundSpec] = {
     "casting": BackgroundSpec("casting", MODE_RIGHT, POSITION_RIGHT, 0.92, 0),
     "control": BackgroundSpec("control", MODE_RIGHT, POSITION_RIGHT, 0.88, 0),
     "media": BackgroundSpec("media", MODE_RIGHT, POSITION_RIGHT, 0.92, 0),
-    "settings": BackgroundSpec("settings", MODE_RIGHT, POSITION_RIGHT, 0.70, 0),
+    # 投屏设置：沿用原「设置」插画（该图右侧有透明留白，需要轻微右移）
+    "cast_settings": BackgroundSpec("cast_settings", MODE_RIGHT, POSITION_RIGHT, 0.70, 0, offset_x_ratio=0.10),
+    # 设置：新插画，贴右下即可
+    "settings": BackgroundSpec("settings", MODE_RIGHT, POSITION_RIGHT, 0.78, 0),
     "logs": BackgroundSpec("logs", MODE_RIGHT, POSITION_RIGHT, 0.55, 24),
 }
 
@@ -437,6 +443,32 @@ BASE_COLORS = {
     "light": QColor(247, 248, 245),
     "dark": QColor(24, 28, 26),
 }
+
+
+class BackgroundColorLayer(QWidget):
+    """纯色 + 主题遮罩的最底层，永远不透明，保证页面切换无白色闪烁。"""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("BackgroundColorLayer")
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._theme = "light"
+        self._mask_alpha = 34
+
+    def set_theme(self, theme: str) -> None:
+        self._theme = "dark" if theme == "dark" else "light"
+        self.update()
+
+    def set_mask_alpha(self, alpha: int) -> None:
+        self._mask_alpha = max(0, min(255, int(alpha)))
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), BASE_COLORS[self._theme])
+        mask = QColor(MASK_COLORS[self._theme])
+        mask.setAlpha(self._mask_alpha)
+        painter.fillRect(self.rect(), mask)
 
 
 class BackgroundLayer(QWidget):
@@ -455,7 +487,8 @@ class BackgroundLayer(QWidget):
         self._opacity = 0.55
         self._mask_alpha = 42
         self._theme = "light"
-        self._paint_base_when_empty = True
+        self._fill_base = False
+        self._offset_x_ratio = 0.0
 
     # -- setters -------------------------------------------------------
     def set_source(self, pixmap: QPixmap | None) -> None:
@@ -490,6 +523,11 @@ class BackgroundLayer(QWidget):
 
     def set_theme(self, theme: str) -> None:
         self._theme = "dark" if theme == "dark" else "light"
+        self.update()
+
+    def set_offset_x_ratio(self, ratio: float) -> None:
+        self._offset_x_ratio = max(-0.5, min(0.5, float(ratio)))
+        self._recompute()
         self.update()
 
     # -- geometry ------------------------------------------------------
@@ -539,8 +577,8 @@ class BackgroundLayer(QWidget):
             height = int(width / ratio)
 
         if self._mode == MODE_RIGHT:
-            # 立绘贴右下角
-            x = area.right() - width + 1
+            # 立绘贴右下角，可按页面宽度比例整体右移
+            x = area.right() - width + 1 + int(area.width() * self._offset_x_ratio)
             y = area.bottom() - height + 1
             return QRect(x, y, width, height)
         if self._position == POSITION_LEFT:
@@ -580,22 +618,16 @@ class BackgroundLayer(QWidget):
 
     # -- painting ------------------------------------------------------
     def paintEvent(self, event) -> None:
-        # 无图片且不需要兜底底色时完全透明（淡入层必须如此，
-        # 否则它会用纯色盖住基础层的人物立绘）
-        if self._source is None and not self._paint_base_when_empty:
-            event.ignore()
+        # 无图片时完全透明；底色与遮罩由 BackgroundColorLayer 负责
+        if self._source is None or self._source.isNull():
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
-        painter.fillRect(self.rect(), BASE_COLORS[self._theme])
-        if self._scaled is not None and not self._scaled.isNull():
-            target = self._target_rect()
-            painter.setOpacity(self._opacity)
+        painter.setOpacity(self._opacity)
+        target = self._target_rect()
+        if not target.isEmpty() and self._scaled is not None and not self._scaled.isNull():
             painter.drawPixmap(target.topLeft(), self._scaled)
-            painter.setOpacity(1.0)
-        mask = QColor(MASK_COLORS[self._theme])
-        mask.setAlpha(self._mask_alpha)
-        painter.fillRect(self.rect(), mask)
+        painter.setOpacity(1.0)
 
 
 class BackgroundManager(QObject):
@@ -620,23 +652,29 @@ class BackgroundManager(QObject):
         self.animation_scale = 1.0
         self.fade_duration = 400
 
-        self.layer = BackgroundLayer(page_host)
-        # 交叉淡入淡出用的新背景层：叠在基础层之上、页面之下
-        self.fade_layer = BackgroundLayer(page_host)
-        self.fade_layer._paint_base_when_empty = False
+        self.color_layer = BackgroundColorLayer(page_host)
+        self.layer = BackgroundLayer(page_host)          # 当前背景（淡出）
+        self.fade_layer = BackgroundLayer(page_host)     # 新背景（淡入）
         layout = page_host.layout()
         if not isinstance(layout, QGridLayout):
             layout = QGridLayout(page_host)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(0)
-        # 重新排列网格：基础背景 → 淡入背景 → 页面
-        layout.removeWidget(page_surface)
+        layout.addWidget(self.color_layer, 0, 0)
         layout.addWidget(self.layer, 0, 0)
         layout.addWidget(self.fade_layer, 0, 0)
         layout.addWidget(page_surface, 0, 0)
         page_surface.raise_()
         self.fade_layer.lower()
         self.layer.lower()
+        self.color_layer.lower()
+
+        # 交叉淡入淡出：基础层淡出（1→0）与新层淡入（0→1）同时进行
+        self._fade_out_anim = QVariantAnimation(self)
+        self._fade_out_anim.setStartValue(1.0)
+        self._fade_out_anim.setEndValue(0.0)
+        self._fade_out_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._fade_out_anim.valueChanged.connect(self._on_fade_out_value)
 
         self._fade_anim = QVariantAnimation(self)
         self._fade_anim.setStartValue(0.0)
@@ -680,36 +718,58 @@ class BackgroundManager(QObject):
         self.layer.set_position(self._position_override or spec.position)
         self.layer.set_opacity(spec.opacity * self._opacity_scale)
         self.layer.set_mask_alpha(spec.mask_alpha)
+        self.layer.set_offset_x_ratio(spec.offset_x_ratio)
         self.layer.set_source(pixmap)
         self.fade_layer.set_source(None)
         self.fade_layer.set_opacity(0)
 
     def _start_crossfade(self, spec: "BackgroundSpec", pixmap, duration: int) -> None:
-        self._fade_anim.stop()
+        # 淡入层配置新背景；基础层保持旧画面与旧位置，仅透明度淡出
         self.fade_layer.set_theme(self.theme)
         self.fade_layer.set_mode(self._mode_override or spec.mode)
         self.fade_layer.set_position(self._position_override or spec.position)
-        self.fade_layer.set_mask_alpha(spec.mask_alpha)
+        self.fade_layer.set_offset_x_ratio(spec.offset_x_ratio)
         self.fade_layer.set_source(pixmap)
+        self.fade_layer.set_opacity(0.0)
+
+        self.layer.set_offset_x_ratio(getattr(self, "_fade_out_from_offset", self.layer._offset_x_ratio))
+
+        self._fade_out_anim.stop()
+        self._fade_anim.stop()
+        self._fade_out_anim.setDuration(duration)
         self._fade_anim.setDuration(duration)
+        self._fade_out_anim.start()
         self._fade_anim.setEndValue(spec.opacity * self._opacity_scale)
         self._fade_anim.start()
 
     def _stop_fade(self) -> None:
+        self._fade_out_anim.stop()
         self._fade_anim.stop()
         self.fade_layer.set_source(None)
-        self.fade_layer.set_opacity(0)
+        self.fade_layer.set_opacity(0.0)
 
     def _on_fade_value(self, value: float) -> None:
         self.fade_layer.set_opacity(float(value))
 
+    def _on_fade_out_value(self, value: float) -> None:
+        self.layer.set_opacity(float(value))
+
     def _on_fade_finished(self) -> None:
         spec = self.get_background_config(self._current_key)
         if spec is None:
+            self.layer.set_source(None)
             self.fade_layer.set_source(None)
-            self.fade_layer.set_opacity(0)
+            self.fade_layer.set_opacity(0.0)
             return
-        self._adopt_on_base(spec, self.fade_layer._source)
+        # 新背景转正到基础层
+        self.layer.set_theme(self.theme)
+        self.layer.set_mode(self._mode_override or spec.mode)
+        self.layer.set_position(self._position_override or spec.position)
+        self.layer.set_offset_x_ratio(spec.offset_x_ratio)
+        self.layer.set_opacity(spec.opacity * self._opacity_scale)
+        self.layer.set_source(self.fade_layer._source)
+        self.fade_layer.set_source(None)
+        self.fade_layer.set_opacity(0.0)
 
     def clear_background(self) -> None:
         self._current_key = ""
@@ -739,8 +799,17 @@ class BackgroundManager(QObject):
 
     def set_theme(self, theme: str) -> None:
         self.theme = "dark" if theme == "dark" else "light"
+        self.color_layer.set_theme(self.theme)
         self.layer.set_theme(self.theme)
         self.fade_layer.set_theme(self.theme)
+
+    def stop_animations(self) -> None:
+        """停止所有背景动画（窗口关闭时调用，避免析构阶段回调）。"""
+        try:
+            self._fade_anim.stop()
+            self._fade_out_anim.stop()
+        except Exception:
+            pass
 
     def reload_backgrounds(self) -> None:
         self._cache.clear()

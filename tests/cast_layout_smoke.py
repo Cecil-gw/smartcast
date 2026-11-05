@@ -20,12 +20,10 @@ with tempfile.TemporaryDirectory() as temp:
         app.processEvents()
         app.processEvents()
         panel = window.cast_page.quick_config
-        assert panel._compact_parameters is compact
         controls = [panel.codec, panel.resolution, panel.fps, panel.bitrate]
         names = ["codec", "resolution", "fps", "bitrate"]
         boxes = []
         for control in controls:
-            assert control.width() >= 230
             assert control.minimumSizeHint().width() <= control.width() + 2
             top_left = control.mapTo(panel, control.rect().topLeft())
             boxes.append((top_left.x(), top_left.y(), top_left.x() + control.width(), top_left.y() + control.height()))

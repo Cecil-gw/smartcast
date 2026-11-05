@@ -38,7 +38,7 @@ def make_png(path: Path, width: int = 80, height: int = 45) -> None:
 
 class BackgroundConfigTests(unittest.TestCase):
     def test_page_mapping_has_all_required_pages(self) -> None:
-        required = {"home", "devices", "casting", "control", "media", "settings", "logs"}
+        required = {"home", "devices", "casting", "control", "media", "cast_settings", "settings", "logs"}
         self.assertEqual(required, set(BACKGROUND_SPECS))
 
     def test_each_spec_points_to_its_own_directory(self) -> None:
@@ -90,6 +90,19 @@ class BackgroundManagerTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def tearDown(self) -> None:
+        # 先停动画并销毁控件，避免 Qt 析构顺序导致进程崩溃
+        try:
+            self.manager.stop_animations()
+        except Exception:
+            pass
+        for widget in (self.manager.fade_layer, self.manager.layer, self.manager.color_layer, self.surface, self.host):
+            try:
+                widget.deleteLater()
+            except RuntimeError:
+                pass
+        app = QApplication.instance()
+        if app is not None:
+            app.processEvents()
         self.tmp.cleanup()
 
     # -- loading -------------------------------------------------------
@@ -191,10 +204,17 @@ class BackgroundManagerTests(unittest.TestCase):
 
     def test_background_layer_is_below_page_surface(self) -> None:
         layout = self.host.layout()
-        self.assertEqual(layout.indexOf(self.manager.layer), 0)
-        self.assertGreaterEqual(layout.indexOf(self.surface), 0)
-        # 两个控件共享同一个网格单元，叠放而不是并排
-        self.assertEqual(layout.getItemPosition(0)[:2], layout.getItemPosition(1)[:2])
+        color_idx = layout.indexOf(self.manager.color_layer)
+        layer_idx = layout.indexOf(self.manager.layer)
+        fade_idx = layout.indexOf(self.manager.fade_layer)
+        surface_idx = layout.indexOf(self.surface)
+        # 顺序：纯色层 → 基础图片层 → 淡入层 → 页面
+        self.assertLess(color_idx, layer_idx)
+        self.assertLess(layer_idx, fade_idx)
+        self.assertLess(fade_idx, surface_idx)
+        # 四个控件共享同一个网格单元，叠放而不是并排
+        positions = {tuple(layout.getItemPosition(i)[:2]) for i in range(layout.count())}
+        self.assertLessEqual(len(positions), 2)
 
     def test_no_background_does_not_block_pages(self) -> None:
         self.manager.clear_background()
@@ -262,13 +282,23 @@ class LayerPaintTests(unittest.TestCase):
         self.assertGreater(center.red(), 200)
         self.assertLess(center.green(), 80)
 
-    def test_layer_paints_base_color_without_image(self) -> None:
+    def test_color_layer_paints_base_color(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        from ui.theme import BackgroundColorLayer
+
+        color_layer = BackgroundColorLayer()
+        color_layer.resize(80, 60)
+        rendered = color_layer.grab().toImage()
+        color = rendered.pixelColor(40, 30)
+        self.assertGreater(color.red(), 200)  # 纯色层始终不透明，无白屏/黑屏
+
+    def test_image_layer_transparent_without_image(self) -> None:
         app = QApplication.instance() or QApplication([])
         layer = BackgroundLayer()
         layer.resize(80, 60)
         rendered = layer.grab().toImage()
         color = rendered.pixelColor(40, 30)
-        self.assertGreater(color.red(), 200)  # 浅色兜底，不是透明/黑屏
+        self.assertEqual(color.alpha(), 0)  # 无图时完全透明，不产生白屏
 
 
 class MainWindowBackgroundTests(unittest.TestCase):
@@ -302,7 +332,30 @@ class MainWindowBackgroundTests(unittest.TestCase):
                 window.close()
                 window.device_thread.quit()
                 window.device_thread.wait(3000)
+                try:
+                    import shiboken6
+                    shiboken6.delete(window)
+                except Exception:
+                    window.deleteLater()
+                app.processEvents()
 
 
 if __name__ == "__main__":
     unittest.main()
+
+def tearDownModule() -> None:
+    """清理 Qt 对象，避免解释器退出阶段析构崩溃。"""
+    import gc
+
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is not None:
+        for widget in list(app.topLevelWidgets()):
+            try:
+                widget.close()
+                widget.deleteLater()
+            except RuntimeError:
+                pass
+        app.processEvents()
+    gc.collect()

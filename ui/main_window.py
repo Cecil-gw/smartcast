@@ -230,7 +230,7 @@ class MainWindow(QMainWindow):
             self.overview_page: "home",
             self.device_page: "devices",
             self.sessions_page: "casting",
-            self.cast_page: "settings",
+            self.cast_page: "cast_settings",
             self.guide_page: "control",
             self.settings_page: "settings",
             self.media_page: "media",
@@ -1113,16 +1113,10 @@ class MainWindow(QMainWindow):
         fade.setEndValue(1.0)
         fade.setEasingCurve(QEasingCurve.OutCubic)
 
-        slide = QPropertyAnimation(self.page_surface, b"pos", self)
-        start = self.page_surface.pos()
-        slide.setDuration(duration)
-        slide.setStartValue(start + __import__("PySide6.QtCore", fromlist=["QPoint"]).QPoint(12, 0))
-        slide.setEndValue(start)
-        slide.setEasingCurve(QEasingCurve.OutCubic)
-
+        # 只做透明度淡入：对布局管理的控件动画化 pos 会与布局冲突，
+        # 在窗口反复创建/销毁时可能崩溃
         group = QParallelAnimationGroup(self)
         group.addAnimation(fade)
-        group.addAnimation(slide)
         def _cleanup() -> None:
             if shiboken6.isValid(self.page_surface):
                 self.page_surface.move(0, 0)
@@ -1132,7 +1126,7 @@ class MainWindow(QMainWindow):
 
         group.finished.connect(_cleanup)
         self._content_anim_group = group
-        group.start(QAbstractAnimation.DeleteWhenStopped)
+        group.start()  # 不自动删除：避免 Python 侧持有悬空引用导致崩溃
 
     def _navigate(self, key: str) -> None:
         if key == "home":
@@ -1334,6 +1328,24 @@ class MainWindow(QMainWindow):
             self.toast.reposition()
 
     def closeEvent(self, event) -> None:
+        """关闭前停止所有后台线程、定时器与动画，避免析构阶段崩溃。"""
+        # UI 定时器与动画先停，避免窗口销毁后仍有回调
+        try:
+            self._toolbar_timer.stop()
+            for toolbar in list(self._cast_toolbars.values()):
+                toolbar.close()
+            self._cast_toolbars.clear()
+            if self._content_anim_group is not None:
+                self._content_anim_group.stop()
+                self._content_anim_group = None
+            self.page_surface.setGraphicsEffect(None)
+            if hasattr(self, "sessions_page"):
+                self.sessions_page._timer.stop()
+            if hasattr(self, "background"):
+                self.background.stop_animations()
+        except Exception as error:
+            self.logger.debug("关闭 UI 资源异常：%s", error)
+
         for thread in list(self.detection_threads.values()):
             if thread.isRunning() and not thread.wait(2500):
                 thread.terminate()
@@ -1342,12 +1354,27 @@ class MainWindow(QMainWindow):
             if thread.isRunning() and not thread.wait(2500):
                 thread.terminate()
                 thread.wait(500)
+        for thread in list(self._network_threads):
+            if thread.isRunning() and not thread.wait(1500):
+                thread.quit()
+                thread.wait(500)
+        for thread in list(self._control_threads.values()) + list(self._screen_threads.values()):
+            if thread.isRunning() and not thread.wait(1500):
+                thread.quit()
+                thread.wait(500)
+
         self.device_thread.quit()
         if not self.device_thread.wait(4000):
             self.device_thread.terminate()
             self.device_thread.wait(500)
         self.scrcpy.shutdown()
-        self.config.save()
+
+        try:
+            self.config.save()
+        except OSError as error:
+            # 配置目录可能已被清理（测试环境/临时目录），不应影响关闭
+            self.logger.warning("保存配置失败：%s", error)
+
         if self._log_handler is not None:
             self.logger.removeHandler(self._log_handler)
             self._log_handler = None

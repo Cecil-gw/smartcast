@@ -256,10 +256,13 @@ class OverviewPage(QWidget):
     def _make_small_card(self, device: DeviceInfo, state: str) -> QFrame:
         card = QFrame()
         card.setObjectName("DeviceCard")
-        card.setFixedSize(160, 148)
+        card.setFixedWidth(160)
+        card.setMinimumHeight(150)
+        card.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         column = QVBoxLayout(card)
         column.setContentsMargins(12, 12, 12, 12)
         column.setSpacing(6)
+        column.addStretch(1)
 
         # head: icon + name
         head = QHBoxLayout()
@@ -273,7 +276,7 @@ class OverviewPage(QWidget):
         phone.setPixmap(icon("phone", COLORS["accent_hover"], 18).pixmap(18, 18))
         phone.setAlignment(Qt.AlignCenter)
         icon_layout.addWidget(phone)
-        head.addWidget(icon_tile, 0, Qt.AlignTop)
+        head.addWidget(icon_tile)
         name = QLabel(f"{device.manufacturer} {device.model}".strip())
         name.setObjectName("InfoValue")
         name.setWordWrap(True)
@@ -294,6 +297,8 @@ class OverviewPage(QWidget):
         pills.addStretch()
         column.addLayout(pills)
 
+        column.addStretch(1)
+
         # buttons stacked vertically
         start_btn = QPushButton("开始投屏" if online else "投屏不可用")
         start_btn.setObjectName("PrimaryButton")
@@ -313,6 +318,18 @@ class OverviewPage(QWidget):
             state = cast_states.get(device.serial, "idle")
             self._card_grid.addWidget(self._make_small_card(device, state), index // columns, index % columns)
         self._card_container.setVisible(bool(devices))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        limit = max(360, int(self.width() * 0.7))
+        for panel in (
+            getattr(self, "control_panel", None),
+            getattr(self, "screen_card", None),
+            getattr(self, "summary_panel", None),
+            getattr(self, "actions_panel", None),
+        ):
+            if panel is not None:
+                panel.setMaximumWidth(limit)
 
     def set_primary_device(self, device: DeviceInfo | None, codecs: list, state: str = "idle") -> None:
         if device is None:

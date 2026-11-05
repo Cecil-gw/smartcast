@@ -50,7 +50,9 @@ class SessionCard(QFrame):
         title_row.setSpacing(8)
         name = QLabel(f"{session.model} · {session.serial}")
         name.setObjectName("CardTitle")
-        title_row.addWidget(name)
+        name.setWordWrap(True)
+        name.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        title_row.addWidget(name, 1)
         self.type_pill = StatusPill(session.connection_label(), "info")
         title_row.addWidget(self.type_pill)
         self.state_pill = StatusPill(session.state_label(), "success" if session.state == SESSION_RUNNING else "idle")
@@ -146,6 +148,10 @@ class SessionsPage(QWidget):
         self._timer.setInterval(1000)
         self._timer.timeout.connect(self._tick_durations)
         self._timer.start()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.scroll.setMaximumWidth(max(360, int(self.width() * 0.7)))
 
     def refresh_sessions(self, sessions: list[CastSession]) -> None:
         current = {s.serial: s for s in sessions}

@@ -66,16 +66,16 @@ class CastToolBar(QWidget):
 
         fullscreen = self._button("fullscreen", "全屏", "screen",
                                   lambda checked=False: self.fullscreen_requested.emit(self.serial))
-        fullscreen.setFixedWidth(48)
+        fullscreen.setMinimumWidth(56)
         row1.addWidget(fullscreen)
         record_text = "停止录屏" if recording else "录屏"
         self.record_button = self._button("record", record_text, "bolt",
                                           lambda checked=False: self.record_requested.emit(self.serial))
-        self.record_button.setFixedWidth(76)
+        self.record_button.setMinimumWidth(84)
         row1.addWidget(self.record_button)
         screenshot = self._button("screenshot", "截图", "copy",
                                   lambda checked=False: self.screenshot_requested.emit(self.serial))
-        screenshot.setFixedWidth(52)
+        screenshot.setMinimumWidth(64)
         row1.addWidget(screenshot)
         column.addLayout(row1)
 
@@ -112,21 +112,22 @@ class CastToolBar(QWidget):
             button = self._button(f"rot_{mode}", text, "refresh",
                                   lambda checked=False, m=mode: self.screen_op_requested.emit(
                                       self.serial, "set_rotation", m))
-            button.setFixedWidth(70)
+            button.setMinimumWidth(78)
             row2.addWidget(button)
 
         always = self._button("always_on", "常亮", "sun",
                               lambda checked=False: self.screen_op_requested.emit(self.serial, "always_on", None))
-        always.setFixedWidth(52)
+        always.setMinimumWidth(64)
         row2.addWidget(always)
         restore = self._button("restore_all", "恢复", "refresh",
                                lambda checked=False: self.screen_op_requested.emit(self.serial, "restore_all", None))
-        restore.setFixedWidth(52)
+        restore.setMinimumWidth(64)
         restore.setToolTip("恢复全部原始屏幕设置")
         row2.addWidget(restore)
         column.addLayout(row2)
 
-        self.setFixedSize(len(self.BUTTONS) * 38 + 380, 84)
+        self.setMinimumSize(len(self.BUTTONS) * 38 + 420, 84)
+        self.adjustSize()
         self.setWindowModality(Qt.NonModal)
 
     def _button(self, action: str, text: str, icon_name: str, handler) -> QPushButton:

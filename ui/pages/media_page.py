@@ -36,32 +36,41 @@ class MediaRecordRow(QFrame):
         super().__init__(parent)
         self.record = record
         self.setObjectName("DeviceCard")
-        row = QHBoxLayout(self)
-        row.setContentsMargins(16, 10, 16, 10)
-        row.setSpacing(10)
+        # 文字在上、操作按钮在下：窗口变窄时文字自动换行，不会被按钮挤压裁切
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 10, 16, 10)
+        outer.setSpacing(8)
 
+        row = QHBoxLayout()
+        row.setSpacing(10)
         icon_name = "screen" if record.media_type == "screenshot" else "bolt"
         icon_label = QLabel()
         icon_label.setPixmap(icon(icon_name, COLORS["accent_hover"], 20).pixmap(20, 20))
-        row.addWidget(icon_label)
+        row.addWidget(icon_label, 0, Qt.AlignTop)
 
         info = QVBoxLayout()
         info.setSpacing(2)
         name = QLabel(record.file_name)
         name.setObjectName("InfoValue")
+        name.setWordWrap(True)
         exists = record.exists()
         detail = f"{record.device_name} · {record.serial} · {record.created} · {record.size / 1024:.0f} KB"
         status_text = "" if exists else " · 文件不存在"
         detail += status_text
         detail_label = QLabel(detail)
         detail_label.setObjectName("Caption")
+        detail_label.setWordWrap(True)
         info.addWidget(name)
         info.addWidget(detail_label)
         row.addLayout(info, 1)
 
         self.status_pill = StatusPill("存在" if exists else "缺失", "success" if exists else "warning")
-        row.addWidget(self.status_pill, 0, Qt.AlignVCenter)
+        row.addWidget(self.status_pill, 0, Qt.AlignTop)
+        outer.addLayout(row)
 
+        actions = QHBoxLayout()
+        actions.setSpacing(6)
+        actions.addStretch(1)
         for text, icon_name2, cb in (
             ("打开", "screen", self.open_requested),
             ("打开目录", "folder", self.open_folder_requested),
@@ -75,7 +84,8 @@ class MediaRecordRow(QFrame):
             button.setCursor(Qt.PointingHandCursor)
             button.setEnabled(exists or cb is not self.delete_file_requested)
             button.clicked.connect(lambda checked=False, c=cb, r=record: c.emit(r))
-            row.addWidget(button)
+            actions.addWidget(button)
+        outer.addLayout(actions)
 
 
 class MediaPage(QWidget):
@@ -130,6 +140,10 @@ class MediaPage(QWidget):
         root.addWidget(self.scroll, 1)
 
         self.rows: dict[str, MediaRecordRow] = {}
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.scroll.setMaximumWidth(max(360, int(self.width() * 0.7)))
 
     def set_records(self, records: list[MediaRecord]) -> None:
         self._records = records

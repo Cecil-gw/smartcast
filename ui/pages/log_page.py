@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
+    QGridLayout,
     QComboBox,
     QFrame,
     QHBoxLayout,
@@ -46,9 +47,11 @@ class LogPage(QWidget):
         self._lines: list[str] = []
         self._theme = "light"
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 16, 20, 16)
+        root.setContentsMargins(20, 16, max(16, int(self.width() * 0.3)), 16)
         root.setSpacing(14)
 
+        header_box = QVBoxLayout()
+        header_box.setSpacing(8)
         header = QHBoxLayout()
         header.setSpacing(10)
         back = QPushButton("返回设备")
@@ -65,23 +68,31 @@ class LogPage(QWidget):
         title.setObjectName("PageTitle")
         subtitle = QLabel("实时查看投屏、扫描和工具检测结果；完整日志保留在本地文件中")
         subtitle.setObjectName("PageSubtitle")
+        subtitle.setWordWrap(True)
         title_column.addWidget(title)
         title_column.addWidget(subtitle)
         header.addLayout(title_column, 1)
+        header_box.addLayout(header)
+
+        # 操作按钮单独一行，避免挤压标题文字
+        actions_row = QHBoxLayout()
+        actions_row.setSpacing(8)
 
         self.open_button = QPushButton("打开目录")
         self.open_button.setIcon(icon("folder", COLORS["muted"], 15))
         self.open_button.setIconSize(QSize(15, 15))
         self.open_button.setCursor(Qt.PointingHandCursor)
         self.open_button.clicked.connect(self.open_logs_requested)
-        header.addWidget(self.open_button)
+        self.open_button.setMinimumHeight(30)
+        actions_row.addWidget(self.open_button)
 
         self.export_button = QPushButton("导出")
         self.export_button.setIcon(icon("export", COLORS["muted"], 15))
         self.export_button.setIconSize(QSize(15, 15))
         self.export_button.setCursor(Qt.PointingHandCursor)
         self.export_button.clicked.connect(self.export_logs_requested)
-        header.addWidget(self.export_button)
+        self.export_button.setMinimumHeight(30)
+        actions_row.addWidget(self.export_button)
 
         self.clear_button = QPushButton("清空界面")
         self.clear_button.setObjectName("GhostButton")
@@ -89,44 +100,49 @@ class LogPage(QWidget):
         self.clear_button.setIconSize(QSize(15, 15))
         self.clear_button.setCursor(Qt.PointingHandCursor)
         self.clear_button.clicked.connect(self.clear_logs_requested)
-        header.addWidget(self.clear_button)
-        root.addLayout(header)
+        self.clear_button.setMinimumHeight(30)
+        actions_row.addWidget(self.clear_button)
+        actions_row.addStretch(1)
+        header_box.addLayout(actions_row)
+        root.addLayout(header_box)
 
         filter_card = QFrame()
         filter_card.setObjectName("ConfigCard")
-        filter_layout = QHBoxLayout(filter_card)
+        filter_layout = QGridLayout(filter_card)
         filter_layout.setContentsMargins(13, 11, 13, 11)
-        filter_layout.setSpacing(10)
+        filter_layout.setHorizontalSpacing(10)
+        filter_layout.setVerticalSpacing(8)
 
         level_title = QLabel("级别")
         level_title.setObjectName("InfoLabel")
-        filter_layout.addWidget(level_title)
+        filter_layout.addWidget(level_title, 0, 0)
         self.level_filter = QComboBox()
         for label, value in (("全部", "ALL"), ("INFO", "INFO"), ("WARNING", "WARNING"), ("ERROR", "ERROR")):
             self.level_filter.addItem(label, value)
         self.level_filter.setCurrentIndex(0)
         self.level_filter.currentIndexChanged.connect(self.refresh_view)
-        filter_layout.addWidget(self.level_filter)
+        filter_layout.addWidget(self.level_filter, 0, 1)
 
         search_title = QLabel("搜索")
         search_title.setObjectName("InfoLabel")
-        filter_layout.addWidget(search_title)
+        filter_layout.addWidget(search_title, 1, 0)
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("搜索序列号、编码器或关键词")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.textChanged.connect(self.refresh_view)
-        filter_layout.addWidget(self.search_edit, 1)
+        filter_layout.addWidget(self.search_edit, 1, 1)
+        filter_layout.setColumnStretch(1, 1)
 
         auto_title = QLabel("自动滚动")
         auto_title.setObjectName("InfoValue")
         self.auto_scroll = ToggleSwitch(True)
-        filter_layout.addWidget(auto_title)
-        filter_layout.addWidget(self.auto_scroll, 0, Qt.AlignVCenter)
+        filter_layout.addWidget(auto_title, 0, 2)
+        filter_layout.addWidget(self.auto_scroll, 0, 3, Qt.AlignVCenter)
 
         self.count_label = QLabel("0 条")
         self.count_label.setObjectName("Caption")
         self.count_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        filter_layout.addWidget(self.count_label)
+        filter_layout.addWidget(self.count_label, 1, 2, 1, 2)
         root.addWidget(filter_card)
 
         self.log_view = QTextEdit()

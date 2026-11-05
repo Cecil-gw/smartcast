@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
@@ -17,8 +18,7 @@ class CastSettingsPage(QWidget):
         scroll.setObjectName("SettingsScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         root.addWidget(scroll)
 
         page = QWidget()
@@ -40,9 +40,9 @@ class CastSettingsPage(QWidget):
         page_layout.addLayout(title_column)
 
         content = QWidget()
-        content.setMaximumWidth(900)
         content.setMinimumWidth(560)
         content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
@@ -54,7 +54,12 @@ class CastSettingsPage(QWidget):
         page_layout.addWidget(content)
         page_layout.addStretch(1)
 
+        self.content = content
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "content"):
+            self.content.setMaximumWidth(max(420, int(self.width() * 0.7)))
+
     def load_defaults(self, parameters: dict) -> None:
         self.quick_config.load(parameters)
-
-

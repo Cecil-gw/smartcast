@@ -89,9 +89,11 @@ class DetailPage(QWidget):
     def _build_hero(self) -> QWidget:
         hero = QFrame()
         hero.setObjectName("HeroCard")
-        layout = QHBoxLayout(hero)
+        layout = QVBoxLayout(hero)
         layout.setContentsMargins(20, 18, 20, 18)
-        layout.setSpacing(14)
+        layout.setSpacing(12)
+        head_row = QHBoxLayout()
+        head_row.setSpacing(14)
         icon_tile = QFrame()
         icon_tile.setObjectName("IconBadge")
         icon_tile.setFixedSize(58, 58)
@@ -101,7 +103,7 @@ class DetailPage(QWidget):
         phone.setPixmap(icon("phone", COLORS["accent"], 30).pixmap(30, 30))
         phone.setAlignment(Qt.AlignCenter)
         icon_layout.addWidget(phone)
-        layout.addWidget(icon_tile)
+        head_row.addWidget(icon_tile)
         title_column = QVBoxLayout()
         title_column.setSpacing(3)
         title_row = QHBoxLayout()
@@ -116,8 +118,10 @@ class DetailPage(QWidget):
         self.hero_subtitle.setObjectName("SerialLabel")
         self.hero_subtitle.setTextInteractionFlags(Qt.TextSelectableByMouse)
         title_column.addLayout(title_row)
+        self.hero_subtitle.setWordWrap(True)
         title_column.addWidget(self.hero_subtitle)
-        layout.addLayout(title_column, 1)
+        head_row.addLayout(title_column, 1)
+        layout.addLayout(head_row)
         self.start_button = QPushButton("开始投屏")
         self.start_button.setObjectName("PrimaryButton")
         self.start_button.setIcon(icon("play", "#FFFFFF", 15))
@@ -137,9 +141,16 @@ class DetailPage(QWidget):
         copy_button.setIcon(icon("copy", COLORS["muted"], 15))
         copy_button.setIconSize(QSize(15, 15))
         copy_button.clicked.connect(lambda: self.device and self.copy_requested.emit(self.device.serial))
-        for button in (self.start_button, self.stop_button, settings_button, copy_button):
+        button_grid = QGridLayout()
+        button_grid.setHorizontalSpacing(8)
+        button_grid.setVerticalSpacing(8)
+        for index, button in enumerate((self.start_button, self.stop_button, settings_button, copy_button)):
             button.setCursor(Qt.PointingHandCursor)
-            layout.addWidget(button)
+            button.setMinimumHeight(30)
+            button_grid.addWidget(button, index // 2, index % 2)
+        button_grid.setColumnStretch(0, 1)
+        button_grid.setColumnStretch(1, 1)
+        layout.addLayout(button_grid)
         return hero
 
     def _build_info(self) -> QWidget:

@@ -170,7 +170,29 @@ class MainWindowTransitionTests(unittest.TestCase):
         cfg.settings["animations_enabled"] = animations
         cfg.settings["animation_duration_scale"] = scale
         window = MainWindow(cfg)
-        self.addCleanup(window.close)
+
+        def _cleanup() -> None:
+            # 必须先停线程再销毁窗口，否则连续创建/销毁窗口会在退出时崩溃
+            thread = getattr(window, "device_thread", None)
+            if thread is not None:
+                thread.quit()
+                thread.wait(3000)
+            bg = getattr(window, "background", None)
+            if bg is not None:
+                for anim in (getattr(bg, "_fade_anim", None), getattr(bg, "_fade_out_anim", None)):
+                    if anim is not None:
+                        anim.stop()
+            window.close()
+            try:
+                import shiboken6
+                shiboken6.delete(window)
+            except Exception:
+                window.deleteLater()
+            app = QApplication.instance()
+            if app is not None:
+                app.processEvents()
+
+        self.addCleanup(_cleanup)
         return window
 
     def test_pages_reused_across_navigation(self) -> None:
@@ -231,3 +253,21 @@ class MainWindowTransitionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def tearDownModule() -> None:
+    """确保测试窗口全部销毁，避免解释器退出时 Qt 对象析构崩溃。"""
+    import gc
+
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is not None:
+        for widget in list(app.topLevelWidgets()):
+            try:
+                widget.close()
+                widget.deleteLater()
+            except RuntimeError:
+                pass
+        app.processEvents()
+    gc.collect()

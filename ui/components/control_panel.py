@@ -34,6 +34,7 @@ class ControlPanelCard(QFrame):
 
         self.hint = QLabel("未连接设备")
         self.hint.setObjectName("Caption")
+        self.hint.setWordWrap(True)
         layout.addWidget(self.hint)
 
         grid = QGridLayout()
@@ -109,29 +110,36 @@ class ScreenControlCard(QFrame):
         brightness_row.addWidget(restore)
         layout.addLayout(brightness_row)
 
-        rotation_row = QHBoxLayout()
-        for mode, text in (("auto", "自动旋转"), ("portrait", "竖屏"), ("landscape", "横屏")):
+        from PySide6.QtWidgets import QGridLayout
+
+        rotation_row = QGridLayout()
+        rotation_row.setHorizontalSpacing(8)
+        rotation_row.setVerticalSpacing(6)
+        self._rotation_buttons = []
+        for index, (mode, text) in enumerate((("auto", "自动旋转"), ("portrait", "竖屏"), ("landscape", "横屏"))):
             button = QPushButton(text)
             button.setObjectName("GhostButton")
             button.setCursor(Qt.PointingHandCursor)
             button.setEnabled(False)
+            button.setMinimumHeight(30)
             button.clicked.connect(lambda checked=False, m=mode: self._emit_op("set_rotation", m))
-            rotation_row.addWidget(button)
-            self._rotation_buttons = getattr(self, "_rotation_buttons", [])
+            rotation_row.addWidget(button, 0, index)
             self._rotation_buttons.append(button)
         always = QPushButton("屏幕常亮")
         always.setObjectName("GhostButton")
         always.setCursor(Qt.PointingHandCursor)
         always.setEnabled(False)
+        always.setMinimumHeight(30)
         always.clicked.connect(lambda: self._emit_op("always_on", None))
-        rotation_row.addWidget(always)
+        rotation_row.addWidget(always, 1, 0)
         self._timeout_button = always
         restore_timeout = QPushButton("恢复休眠时间")
         restore_timeout.setObjectName("GhostButton")
         restore_timeout.setCursor(Qt.PointingHandCursor)
         restore_timeout.setEnabled(False)
+        restore_timeout.setMinimumHeight(30)
         restore_timeout.clicked.connect(lambda: self._emit_op("restore_timeout", None))
-        rotation_row.addWidget(restore_timeout)
+        rotation_row.addWidget(restore_timeout, 1, 1)
         self._restore_timeout_button = restore_timeout
         wakeup = QPushButton("唤醒屏幕")
         wakeup.setObjectName("GhostButton")
@@ -139,29 +147,37 @@ class ScreenControlCard(QFrame):
         wakeup.setIconSize(QSize(14, 14))
         wakeup.setCursor(Qt.PointingHandCursor)
         wakeup.setEnabled(False)
+        wakeup.setMinimumHeight(30)
         wakeup.clicked.connect(
             lambda: self.serial and self.control_requested.emit(self.serial, "wakeup")
         )
-        rotation_row.addWidget(wakeup)
+        rotation_row.addWidget(wakeup, 1, 2)
         self._wakeup_button = wakeup
+        for column in range(3):
+            rotation_row.setColumnStretch(column, 1)
         layout.addLayout(rotation_row)
 
-        cast_row = QHBoxLayout()
         cast_note = QLabel("投屏增强（需投屏会话运行中）：")
         cast_note.setObjectName("Caption")
-        cast_row.addWidget(cast_note)
+        cast_note.setWordWrap(True)
+        layout.addWidget(cast_note)
+        cast_row = QGridLayout()
+        cast_row.setHorizontalSpacing(8)
+        cast_row.setVerticalSpacing(6)
         off_cast = QPushButton("熄屏投屏")
         off_cast.setObjectName("GhostButton")
         off_cast.setCursor(Qt.PointingHandCursor)
         off_cast.setEnabled(False)
         off_cast.clicked.connect(lambda: self.serial and self.screen_off_cast_requested.emit(self.serial))
-        cast_row.addWidget(off_cast)
+        off_cast.setMinimumHeight(30)
+        cast_row.addWidget(off_cast, 0, 0)
         self._off_cast_button = off_cast
         fullscreen = QPushButton("全屏切换")
         fullscreen.setObjectName("GhostButton")
         fullscreen.setCursor(Qt.PointingHandCursor)
         fullscreen.clicked.connect(lambda: self.serial and self.fullscreen_requested.emit(self.serial))
-        cast_row.addWidget(fullscreen)
+        fullscreen.setMinimumHeight(30)
+        cast_row.addWidget(fullscreen, 0, 1)
         screenshot = QPushButton("截图")
         screenshot.setObjectName("GhostButton")
         screenshot.setIcon(icon("copy", COLORS["muted"], 14))
@@ -169,7 +185,8 @@ class ScreenControlCard(QFrame):
         screenshot.setCursor(Qt.PointingHandCursor)
         screenshot.setEnabled(False)
         screenshot.clicked.connect(lambda: self.serial and self.screenshot_requested.emit(self.serial))
-        cast_row.addWidget(screenshot)
+        screenshot.setMinimumHeight(30)
+        cast_row.addWidget(screenshot, 1, 0)
         self._screenshot_button = screenshot
         self.record_button = QPushButton("开始录屏")
         self.record_button.setObjectName("GhostButton")
@@ -178,8 +195,10 @@ class ScreenControlCard(QFrame):
         self.record_button.setCursor(Qt.PointingHandCursor)
         self.record_button.setEnabled(False)
         self.record_button.clicked.connect(lambda: self.serial and self.record_requested.emit(self.serial))
-        cast_row.addWidget(self.record_button)
-        cast_row.addStretch()
+        self.record_button.setMinimumHeight(30)
+        cast_row.addWidget(self.record_button, 1, 1)
+        cast_row.setColumnStretch(0, 1)
+        cast_row.setColumnStretch(1, 1)
         layout.addLayout(cast_row)
 
         self._extra_buttons = [

@@ -83,8 +83,6 @@ class SettingsPage(QWidget):
         content.setMaximumWidth(980)
         content.setMinimumWidth(680)
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 1, 0, 1)
-        content_layout.setSpacing(14)
         content_layout.addWidget(self._build_adb_section())
         content_layout.addWidget(self._build_scrcpy_section())
         content_layout.addWidget(self._build_parameters_section())
@@ -114,6 +112,8 @@ class SettingsPage(QWidget):
         footer_save.clicked.connect(self._emit_save)
         footer.addWidget(footer_save)
         root.addLayout(footer)
+        content_layout.setContentsMargins(0, 1, 0, 1)
+        content_layout.setSpacing(14)
 
     def _build_adb_section(self) -> QWidget:
         section = SettingsSection("ADB 配置", "留空时使用内置 resources/adb/adb.exe。修改后可先检测再保存。", "usb")
@@ -462,8 +462,7 @@ class SettingsPage(QWidget):
         combo.setCurrentIndex(index if index >= 0 else 0)
 
 
-
-
-
-
-
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "content"):
+            self.content.setMaximumWidth(max(420, int(self.width() * 0.7)))

@@ -122,3 +122,19 @@ class SessionManagerTests(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+def tearDownModule() -> None:
+    """清理 Qt 对象，避免解释器退出阶段析构崩溃。"""
+    import gc
+
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is not None:
+        for widget in list(app.topLevelWidgets()):
+            try:
+                widget.close()
+                widget.deleteLater()
+            except RuntimeError:
+                pass
+        app.processEvents()
+    gc.collect()

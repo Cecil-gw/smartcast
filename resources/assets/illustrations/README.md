@@ -11,7 +11,8 @@ resources/assets/illustrations/
 ├── casting/background.png    投屏中心
 ├── control/background.png    设备控制（详情页）
 ├── media/background.png      媒体管理
-├── settings/background.png   投屏设置 / 设置
+├── cast_settings/background.png  投屏设置
+├── settings/background.png   设置
 └── logs/background.png       运行日志
 ```
 

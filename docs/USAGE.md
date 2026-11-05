@@ -164,6 +164,7 @@ resources/assets/illustrations/devices/background.png    设备管理
 resources/assets/illustrations/casting/background.png    投屏中心
 resources/assets/illustrations/control/background.png    设备控制
 resources/assets/illustrations/media/background.png      媒体管理
+resources/assets/illustrations/cast_settings/background.png  投屏设置
 resources/assets/illustrations/settings/background.png   设置
 resources/assets/illustrations/logs/background.png       运行日志
 ```

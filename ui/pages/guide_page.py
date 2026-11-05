@@ -33,7 +33,10 @@ _STEPS_WIFI = [
 ]
 
 _TIPS = [
-    ("断开连接", "Wi-Fi 设备卡片上的「断开」按钮或连接窗口中的「断开连接」，只断开该设备，不影响其他设备。"),
+    ("悬浮控制条", "投屏运行时，投屏窗口下方会出现控制条：返回/主页/音量等按键、全屏切换、截图、录屏、亮度与旋转调节，跟随窗口移动。"),
+    ("投屏中心", "侧边栏「投屏中心」查看所有会话的状态、实时运行时长和投屏参数，可单独停止或全屏。"),
+    ("媒体管理", "侧边栏「媒体管理」集中管理截图与录屏文件，支持按设备和类型筛选、打开文件或目录、删除。"),
+    ("断开连接", "Wi-Fi 设备卡片上的「断开」按钮只断开该设备，不影响其他设备与正在运行的投屏。"),
     ("无线调试端口不固定", "Android 11+ 的「无线调试」端口是随机的（如 39401），扫描无法直接发现，但连接过一次后 SmartCast 会记住地址，下次秒连。"),
     ("设备未授权", "手机弹出授权时请点允许；已拒绝可在开发者选项中「撤销 USB 调试授权」后重试。"),
     ("设备 offline / 掉线", "网络波动后设备会显示 offline，恢复 Wi-Fi 后重新连接即可，独立投屏设置不会丢失。"),
@@ -76,6 +79,7 @@ class GuidePage(QWidget):
         content.setMaximumWidth(900)
         content.setMinimumWidth(560)
         content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
@@ -88,27 +92,32 @@ class GuidePage(QWidget):
         page_layout.addWidget(content)
         page_layout.addStretch(1)
 
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "content"):
+            self.content.setMaximumWidth(max(460, int(self.width() * 0.7)))
+
     def _section(self, title: str, icon_name: str, steps) -> QFrame:
         card = QFrame()
         card.setObjectName("SettingsSection")
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(10)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(12)
 
         head = QHBoxLayout()
-        head.setSpacing(8)
+        head.setSpacing(9)
         head_icon = QLabel()
-        head_icon.setPixmap(icon(icon_name, COLORS["accent_hover"], 18).pixmap(18, 18))
+        head_icon.setPixmap(icon(icon_name, COLORS["accent_hover"], 20).pixmap(20, 20))
         head.addWidget(head_icon)
         head_label = QLabel(title)
-        head_label.setObjectName("InfoValue")
+        head_label.setObjectName("GuideSectionTitle")
         head.addWidget(head_label)
         head.addStretch()
         layout.addLayout(head)
 
         for number, heading, detail in steps:
             row = QHBoxLayout()
-            row.setSpacing(10)
+            row.setSpacing(12)
             badge = QLabel(number)
             badge.setFixedSize(26, 26)
             badge.setAlignment(Qt.AlignCenter)
@@ -131,16 +140,16 @@ class GuidePage(QWidget):
         card = QFrame()
         card.setObjectName("SettingsSection")
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(8)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(12)
 
         head = QHBoxLayout()
-        head.setSpacing(8)
+        head.setSpacing(9)
         head_icon = QLabel()
-        head_icon.setPixmap(icon("help", COLORS["accent_hover"], 18).pixmap(18, 18))
+        head_icon.setPixmap(icon("help", COLORS["accent_hover"], 20).pixmap(20, 20))
         head.addWidget(head_icon)
         head_label = QLabel("常见问题与技巧")
-        head_label.setObjectName("InfoValue")
+        head_label.setObjectName("GuideSectionTitle")
         head.addWidget(head_label)
         head.addStretch()
         layout.addLayout(head)

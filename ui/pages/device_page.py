@@ -99,7 +99,7 @@ class DevicePage(QWidget):
         host_layout = QVBoxLayout(self.grid_host)
         host_layout.setContentsMargins(0, 1, 4, 1)
         host_layout.setSpacing(0)
-        self.card_grid = CardGrid(min_card_width=480, gap=14)
+        self.card_grid = CardGrid(min_card_width=430, gap=14)
         host_layout.addWidget(self.card_grid)
         host_layout.addStretch(1)
         self.scroll.setWidget(self.grid_host)
@@ -109,7 +109,9 @@ class DevicePage(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        QTimer.singleShot(0, self._update_grid_width)
+        if hasattr(self, "scroll"):
+            self.scroll.setMaximumWidth(max(360, int(self.width() * 0.7)))
+            QTimer.singleShot(0, self._update_grid_width)
 
     def _update_grid_width(self) -> None:
         width = self.scroll.viewport().width() or self.width() - 48
