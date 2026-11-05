@@ -1,6 +1,6 @@
 from PySide6.QtCore import QObject, Signal, QTimer, Slot
 
-from core.adb_manager import AdbError, AdbManager, RawDevice
+from core.adb_manager import AdbError, AdbManager, RawDevice, is_server_fault
 from core.device_info import DeviceInfo, DeviceInfoReader
 from utils.logger import setup_logger
 
@@ -19,6 +19,7 @@ class DeviceWorker(QObject):
         self.paused = False
         self._last_scan_signature: tuple | None = None
         self._last_error: str | None = None
+        self._last_recovery = 0.0  # 上次自动恢复的时间（限频用）
 
     @Slot()
     def start(self) -> None:
@@ -58,10 +59,32 @@ class DeviceWorker(QObject):
         else:
             timer.stop()
 
+    def _try_recover(self, message: str) -> bool:
+        """ADB 服务端故障时做一次受控恢复，30 秒内不重复触发。"""
+        import time
+
+        if not is_server_fault(message):
+            return False
+        now = time.monotonic()
+        if now - self._last_recovery < 30:
+            return False
+        self._last_recovery = now
+        return self.adb.recover_server()
+
     @Slot()
     def scan(self) -> None:
         try:
-            raw_devices: list[RawDevice] = self.adb.devices()
+            try:
+                raw_devices: list[RawDevice] = self.adb.devices()
+            except AdbError as first_error:
+                # 服务端握手失败/超时：自动恢复后重试一次
+                if self._try_recover(str(first_error)):
+                    raw_devices = self.adb.devices()
+                elif "timed out" in str(first_error).lower():
+                    # 服务繁忙导致的偶发超时，直接重试一次
+                    raw_devices = self.adb.devices()
+                else:
+                    raise
             signature = tuple((item.serial, item.state) for item in raw_devices)
             if signature != self._last_scan_signature:
                 self.logger.info("Device scan: %s", list(signature))
