@@ -23,7 +23,26 @@ def app_icon() -> QIcon:
     return QIcon(str(icon_file))
 
 
+def _set_taskbar_identity() -> None:
+    """让 Windows 任务栏使用本程序自己的图标，而不是通用/空白图标。
+
+    未设置 AppUserModelID 时，Python 打包应用的任务栏图标可能显示为空白，
+    因为任务栏按钮归属不到 exe 内嵌的图标资源。
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "Cecil.SmartCast.Desktop"
+        )
+    except Exception:
+        pass
+
+
 def main() -> int:
+    _set_taskbar_identity()
     app = QApplication(sys.argv)
     app.setApplicationName("SmartCast")
     app.setApplicationDisplayName("SmartCast")
