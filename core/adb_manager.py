@@ -17,6 +17,8 @@ class AdbError(Exception):
 # ADB 服务端异常（客户端/服务端握手失败、服务未运行、端口被占用等）
 SERVER_FAULT_MARKERS = (
     "protocol fault",
+    "timed out",
+    "timeout",
     "failed to check server version",
     "couldn't read status",
     "connection reset",
@@ -134,8 +136,39 @@ class AdbManager:
             self.logger.error("ADB Server 重启异常：%s", exc)
             return False
 
+    def hard_reset_server(self) -> bool:
+        """彻底重置：结束所有 adb 进程（含自身服务端）后重新启动。
+
+        仅在一级恢复（kill-server/start-server）仍失败时使用。
+        """
+        import subprocess
+        import time
+
+        self.logger.warning("ADB 一级恢复失败，执行彻底重置")
+        for pid, _path in list_adb_processes():
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)],
+                    capture_output=True,
+                    timeout=8,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except Exception:
+                continue
+        time.sleep(1.2)
+        try:
+            code, _, error = run_command([self.adb_path, "start-server"], 15)
+            if code not in (0, 1):
+                self.logger.error("ADB 服务启动失败：%s", (error or "").strip())
+                return False
+            self.logger.info("ADB 服务已重新启动")
+            return True
+        except Exception as exc:
+            self.logger.error("ADB 彻底重置异常：%s", exc)
+            return False
+
     def devices(self) -> list[RawDevice]:
-        code, output, error = run_command([self.adb_path, "devices", "-l"], 5)
+        code, output, error = run_command([self.adb_path, "devices", "-l"], 8)
         if code != 0:
             raise AdbError(error or f"ADB devices failed ({code})")
         result: list[RawDevice] = []

@@ -70,18 +70,33 @@ class WorkerRecoveryTests(unittest.TestCase):
         # 30 秒内不重复恢复
         self.assertEqual(self.adb.recover_server.call_count, first_calls)
 
-    def test_timeout_retried_without_recovery(self) -> None:
+    def test_timeout_also_triggers_recovery(self) -> None:
+        """持续超时同样视为服务端异常，必须自动恢复（用户要求免手动）。"""
         self.adb.devices.side_effect = [
             AdbError("Command timed out"),
             [RawDevice("S1", "device")],
         ]
+        self.adb.recover_server.return_value = True
         with mock.patch.object(self.worker.reader, "read") as reader:
             from core.device_info import DeviceInfo
 
             reader.return_value = DeviceInfo("S1", "device")
             self.worker.scan()
-        self.adb.recover_server.assert_not_called()
+        self.adb.recover_server.assert_called_once()
         self.assertEqual(self.adb.devices.call_count, 2)
+
+    def test_second_failure_escalates_to_hard_reset(self) -> None:
+        """一级恢复没解决时，下一次自动升级为彻底重置。"""
+        self.adb.devices.side_effect = AdbError("protocol fault (couldn't read status)")
+        self.adb.recover_server.return_value = True
+        self.adb.hard_reset_server = mock.MagicMock(return_value=True)
+
+        self.worker.scan()          # 一级恢复
+        self.worker._last_recovery = 0.0   # 解除时间限频，模拟 12 秒后
+        self.worker.scan()          # 升级为彻底重置
+
+        self.adb.recover_server.assert_called_once()
+        self.adb.hard_reset_server.assert_called_once()
 
 
 if __name__ == "__main__":

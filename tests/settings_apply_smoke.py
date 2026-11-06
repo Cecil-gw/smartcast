@@ -49,5 +49,14 @@ with tempfile.TemporaryDirectory() as temp:
     assert config.devices["serial"]["parameters"]["audio"] is True
     assert (Path(temp) / "settings.json").exists()
     window.close()
+    thread = getattr(window, "device_thread", None)
+    if thread is not None:
+        thread.quit()
+        thread.wait(3000)
+    try:
+        import shiboken6
+        shiboken6.delete(window)
+    except Exception:
+        window.deleteLater()
 
 print("settings apply smoke passed")

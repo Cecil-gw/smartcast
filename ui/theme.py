@@ -9,6 +9,7 @@ from PySide6.QtCore import (
     QObject,
     QRect,
     QSize,
+    QTimer,
     Qt,
     QVariantAnimation,
     Signal,
@@ -519,6 +520,11 @@ class BackgroundLayer(QWidget):
         self._zoom = 1.0
         self._zoom_anim = None
         self._animations_enabled = True
+        # 拖拽缩放时延迟重采样，避免每个 resize 事件都做一次高质量缩放（抖动来源）
+        self._resample_timer = QTimer(self)
+        self._resample_timer.setSingleShot(True)
+        self._resample_timer.setInterval(120)
+        self._resample_timer.timeout.connect(self._recompute)
 
     # -- setters -------------------------------------------------------
     def set_source(self, pixmap: QPixmap | None) -> None:
@@ -589,7 +595,9 @@ class BackgroundLayer(QWidget):
     # -- geometry ------------------------------------------------------
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self._recompute()
+        # 拖拽中先复用缓存图（绘制时拉伸），停止 120ms 后再高质量重采样
+        self._resample_timer.start()
+        self.update()
 
     def _target_rect(self) -> QRect:
         """按显示模式与位置计算图片绘制区域（保持比例）。"""
@@ -688,7 +696,7 @@ class BackgroundLayer(QWidget):
                 painter.translate(anchor_x, anchor_y)
                 painter.scale(self._zoom, self._zoom)
                 painter.translate(-anchor_x, -anchor_y)
-            painter.drawPixmap(target.topLeft(), self._scaled)
+            painter.drawPixmap(target, self._scaled)
         painter.setOpacity(1.0)
 
 
@@ -861,9 +869,23 @@ class BackgroundManager(QObject):
             self.set_background(self._current_key)
 
     def on_host_resized(self, new_width: int) -> None:
-        """窗口尺寸变化时驱动背景图缩放过渡（400ms）。"""
+        """窗口尺寸变化时驱动背景图缩放过渡（400ms）。
+
+        拖拽缩放会连续触发该回调，这里做防抖：尺寸稳定 160ms 后才播放一次，
+        避免动画被反复重启造成背景"抖动"。
+        """
+        if not hasattr(self, "_resize_timer"):
+            self._resize_timer = QTimer(self)
+            self._resize_timer.setSingleShot(True)
+            self._resize_timer.setInterval(160)
+            self._resize_timer.timeout.connect(self._play_resize_zoom)
+        self._host_width_new = max(1, int(new_width))
+        self._resize_timer.start()
+
+    def _play_resize_zoom(self) -> None:
         old_width = getattr(self, "_host_width", 0)
-        self._host_width = max(1, int(new_width))
+        new_width = getattr(self, "_host_width_new", 0)
+        self._host_width = new_width
         if not self.animations_enabled or old_width <= 0 or new_width <= 0:
             return
         ratio = old_width / float(new_width)

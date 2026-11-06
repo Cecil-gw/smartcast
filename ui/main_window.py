@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ from PySide6.QtCore import (
     Q_ARG,
     QEasingCurve,
     QRect,
+    QRectF,
     QMetaObject,
     QParallelAnimationGroup,
     QObject,
@@ -21,7 +23,7 @@ from PySide6.QtCore import (
     QUrl,
     Signal,
 )
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QPainterPath, QRegion
 from PySide6.QtWidgets import (
     QApplication,
         QGraphicsOpacityEffect,
@@ -214,7 +216,8 @@ class MainWindow(QMainWindow):
         self.page_surface = QWidget()
         self.page_surface.setObjectName("PageSurface")
         surface_layout = QVBoxLayout(self.page_surface)
-        surface_layout.setContentsMargins(0, 0, 0, 0)
+        # 底部留 12px：页面滚动条不侵入窗口右下圆角
+        surface_layout.setContentsMargins(0, 0, 0, 12)
         surface_layout.setSpacing(0)
         surface_layout.addWidget(self.stack)
         host_layout.addWidget(self.page_surface, 0, 0)
@@ -223,6 +226,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         self._size_grip = QSizeGrip(central)
         self._size_grip.setFixedSize(16, 16)
+        # 握把必须透明，否则会盖住窗口右下角的圆角
+        self._size_grip.setAttribute(Qt.WA_TranslucentBackground, True)
+        self._size_grip.setStyleSheet("background: transparent; border: none;")
         self._size_grip.raise_()
         self.toast = Toast(central)
 
@@ -1077,9 +1083,36 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         if hasattr(self, "_size_grip"):
             grip = self._size_grip
-            grip.move(self.centralWidget().width() - grip.width(), self.centralWidget().height() - grip.height())
+            # 向内缩进 3px，避免遮挡窗口圆角
+            grip.move(self.centralWidget().width() - grip.width() - 3,
+                      self.centralWidget().height() - grip.height() - 3)
         if hasattr(self, "background") and hasattr(self, "page_host"):
             self.background.on_host_resized(self.page_host.width())
+        # 不使用窗口遮罩：会与无边框窗口的标题栏控件冲突。
+        # 圆角由 RootShell 背景绘制，页面底部留 12px 让滚动条不侵入角落。
+
+    def _apply_native_rounded_corners(self) -> None:
+        """使用 Windows DWM 原生圆角（Win11），避免遮罩裁切子控件。"""
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+
+            DWMWA_WINDOW_CORNER_PREFERENCE = 33
+            DWMWCP_ROUND = 2
+            value = ctypes.c_int(DWMWCP_ROUND)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                int(self.winId()),
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                ctypes.byref(value),
+                ctypes.sizeof(value),
+            )
+        except Exception as self_error:  # 老系统不支持时静默跳过
+            self.logger.debug("原生圆角不可用：%s", self_error)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        QTimer.singleShot(0, self._apply_native_rounded_corners)
 
     def _restore_window_geometry(self) -> None:
         """恢复上次关闭时的窗口位置与大小（校验屏幕范围，避免恢复到屏幕外）。"""
