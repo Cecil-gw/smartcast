@@ -26,7 +26,7 @@ from PySide6.QtCore import (
     QUrl,
     Signal,
 )
-from PySide6.QtGui import QDesktopServices, QPainterPath, QRegion
+from PySide6.QtGui import QDesktopServices, QIcon, QPainterPath, QRegion
 from PySide6.QtWidgets import (
     QApplication,
         QGraphicsOpacityEffect,
