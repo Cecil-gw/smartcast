@@ -1,3 +1,4 @@
+import ctypes
 import sys
 from pathlib import Path
 
@@ -41,8 +42,38 @@ def _set_taskbar_identity() -> None:
         pass
 
 
+def _ensure_single_instance() -> bool:
+    """通过命名互斥体确保同时只能运行一个 SmartCast 实例。
+
+    第二个实例启动时会弹窗提示并自动退出，避免两个 adb 服务端互相冲突。
+    """
+    if sys.platform != "win32":
+        return True
+    try:
+        handle = ctypes.windll.kernel32.CreateMutexW(None, False, "SmartCast_SingleInstance_Mutex")
+        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            return False
+    except Exception:
+        return True  # 互斥体创建失败时保守放行，不阻断启动
+    return True
+
+
 def main() -> int:
     _set_taskbar_identity()
+
+    if not _ensure_single_instance():
+        import ctypes as _ct
+
+        _ct.windll.user32.MessageBoxW(
+            None,
+            "SmartCast 已经在运行中。\n"
+            "请使用已打开的窗口，或先关闭它再启动新实例。\n\n"
+            "（多个实例会互相抢占 ADB 服务端，导致设备扫描失败）",
+            "SmartCast",
+            0x40 | 0x30,  # MB_ICONINFORMATION | MB_SETFOREGROUND
+        )
+        return 0
+
     app = QApplication(sys.argv)
     app.setApplicationName("SmartCast")
     app.setApplicationDisplayName("SmartCast")
