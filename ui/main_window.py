@@ -34,9 +34,11 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QSizeGrip,
     QStackedWidget,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
@@ -172,6 +174,7 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             app.installEventFilter(self)
+        self._setup_tray()
         self.logger.info("SmartCast UI ready")
 
     def _build_ui(self) -> None:
@@ -1138,6 +1141,74 @@ class MainWindow(QMainWindow):
         super().showEvent(event)
         QTimer.singleShot(0, self._apply_native_rounded_corners)
 
+    # ---- 系统托盘 ---------------------------------------------------
+    def _setup_tray(self) -> None:
+        """任务栏通知区域图标与快捷菜单（重启 ADB / 显示 / 退出）。"""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        from utils.system_utils import resource_path
+
+        icon_path = resource_path("resources/assets/app-icon.ico")
+        self.tray = QSystemTrayIcon(QIcon(str(icon_path)), self)
+        self.tray.setToolTip("SmartCast")
+
+        menu = QMenu()
+        show_action = menu.addAction("显示主窗口")
+        show_action.triggered.connect(self._show_from_tray)
+        menu.addSeparator()
+        adb_action = menu.addAction("重启 ADB 服务")
+        adb_action.triggered.connect(self._tray_restart_adb)
+        log_action = menu.addAction("打开日志目录")
+        log_action.triggered.connect(self.open_logs)
+        menu.addSeparator()
+        quit_action = menu.addAction("退出 SmartCast")
+        quit_action.triggered.connect(self._quit_from_tray)
+
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(self._on_tray_activated)
+        self._tray_menu = menu
+        self._tray_active = True
+        self._tray_hint_shown = False
+        self.tray.show()
+
+    def _on_tray_activated(self, reason) -> None:
+        if reason in (QSystemTrayIcon.DoubleClick, QSystemTrayIcon.Trigger):
+            self._show_from_tray()
+
+    def _show_from_tray(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _tray_restart_adb(self) -> None:
+        """托盘里的「重启 ADB 服务」：不依赖连接对话框。"""
+        thread = ServerRestartThread(self.network, self)
+        thread.finished_with_result.connect(self._on_tray_restart_result)
+        thread.finished.connect(lambda: self._network_threads.discard(thread))
+        self._network_threads.add(thread)
+        thread.start()
+        if hasattr(self, "tray"):
+            self.tray.showMessage("SmartCast", "正在重启 ADB 服务…", QSystemTrayIcon.Information, 2000)
+
+    def _on_tray_restart_result(self, ok: bool, message: str) -> None:
+        text = "ADB 服务已启动" if ok else f"ADB 重启失败：{message}"
+        if hasattr(self, "tray"):
+            self.tray.showMessage(
+                "SmartCast", text,
+                QSystemTrayIcon.Information if ok else QSystemTrayIcon.Warning,
+                3000,
+            )
+        self.toast.show_message(text, "success" if ok else "error")
+        if ok:
+            self.request_scan()
+
+    def _quit_from_tray(self) -> None:
+        self._really_quit = True
+        if hasattr(self, "tray"):
+            self.tray.hide()
+        self.close()
+        QApplication.quit()
+
     def _restore_window_geometry(self) -> None:
         """恢复上次关闭时的窗口位置与大小（校验屏幕范围，避免恢复到屏幕外）。"""
         geometry = self.config.settings.get("window_geometry") or {}
@@ -1542,6 +1613,20 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         """关闭前停止所有后台线程、定时器与动画，避免析构阶段崩溃。"""
+        # 有托盘时：点 X 只隐藏窗口，真正退出走托盘菜单
+        if getattr(self, "_tray_active", False) and not getattr(self, "_really_quit", False):
+            event.ignore()
+            self.hide()
+            if not getattr(self, "_tray_hint_shown", False):
+                self.tray.showMessage(
+                    "SmartCast",
+                    "已最小化到托盘。双击图标可重新打开，右键可重启 ADB 或退出。",
+                    QSystemTrayIcon.Information,
+                    4000,
+                )
+                self._tray_hint_shown = True
+            return
+
         # UI 定时器与动画先停，避免窗口销毁后仍有回调
         try:
             self._toolbar_timer.stop()
