@@ -143,3 +143,35 @@ class ForeignProcessCleanupTests(unittest.TestCase):
         self.assertTrue(ok)
         killer.assert_called_once()
 
+class PathFaultTests(unittest.TestCase):
+    def test_ensure_adb_path_falls_back_to_bundled(self) -> None:
+        from core.adb_manager import AdbManager
+
+        manager = AdbManager(r"C:\not\exists\adb.exe")
+        manager.adb_path = r"C:\not\exists\adb.exe"
+        with mock.patch("core.adb_manager.resolve_tool", return_value=r"C:\114514\SmartCast\resources\adb\adb.exe"), \
+                mock.patch("pathlib.Path.is_file", return_value=True):
+            self.assertTrue(manager.ensure_adb_path())
+        self.assertTrue(manager.adb_path.endswith("adb.exe"))
+
+    def test_worker_retries_after_path_fix(self) -> None:
+        from core.adb_manager import AdbError, RawDevice
+        from workers.device_worker import DeviceWorker
+
+        adb = mock.MagicMock()
+        adb.devices.side_effect = [
+            AdbError("Executable not found"),
+            [RawDevice("S1", "device")],
+        ]
+        adb.ensure_adb_path.return_value = True
+        worker = DeviceWorker(adb, interval=2)
+
+        with mock.patch.object(worker.reader, "read") as reader:
+            from core.device_info import DeviceInfo
+
+            reader.return_value = DeviceInfo("S1", "device")
+            worker.scan()
+
+        adb.ensure_adb_path.assert_called_once()
+        self.assertEqual(adb.devices.call_count, 2)
+

@@ -102,7 +102,35 @@ def kill_foreign_adb_processes(own_path: str) -> list[int]:
 class AdbManager:
     def __init__(self, configured_path: str = "") -> None:
         self.logger = setup_logger()
+        self.configured_path = configured_path
         self.adb_path = resolve_tool(configured_path, "resources/adb", "adb")
+
+    def ensure_adb_path(self) -> bool:
+        """检查 adb 路径是否有效；失效时自动回退到内置 adb。
+
+        「Executable not found」通常意味着 adb.exe 被删除/移动，
+        或配置里写了一个不存在的路径。这里自动重新解析并替换。
+        """
+        from pathlib import Path
+
+        if self.adb_path and Path(self.adb_path).is_file():
+            return True
+
+        candidate = resolve_tool("", "resources/adb", "adb")
+        if candidate and Path(candidate).is_file():
+            self.logger.warning("ADB 路径失效，自动回退到内置：%s", candidate)
+            self.adb_path = candidate
+            return True
+
+        # 再尝试系统 PATH
+        import shutil
+
+        found = shutil.which("adb")
+        if found:
+            self.logger.warning("ADB 路径失效，自动回退到系统 adb：%s", found)
+            self.adb_path = found
+            return True
+        return False
 
     def start_server(self) -> None:
         code, _, error = run_command([self.adb_path, "start-server"], 10)
@@ -169,6 +197,10 @@ class AdbManager:
 
     def devices(self) -> list[RawDevice]:
         code, output, error = run_command([self.adb_path, "devices", "-l"], 8)
+        if code == 127 or "executable not found" in (error or "").lower():
+            # 路径失效：自动回退并重试一次
+            if self.ensure_adb_path():
+                code, output, error = run_command([self.adb_path, "devices", "-l"], 8)
         if code != 0:
             raise AdbError(error or f"ADB devices failed ({code})")
         result: list[RawDevice] = []

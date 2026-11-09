@@ -67,7 +67,7 @@ class DeviceWorker(QObject):
         import time
 
         now = time.monotonic()
-        if now - self._last_recovery < 12:
+        if now - self._last_recovery < 8:
             return False
         self._last_recovery = now
 
@@ -80,18 +80,43 @@ class DeviceWorker(QObject):
             return bool(hard_reset())
         return self.adb.recover_server()
 
+    def _is_path_fault(self, message: str) -> bool:
+        """判断是否是 adb 可执行文件路径失效。"""
+        text = (message or "").lower()
+        return "executable not found" in text or "找不到 adb" in text
+
     def _scan_devices(self) -> list[RawDevice]:
-        """扫描设备；失败时按级别自动恢复并重试。"""
+        """扫描设备；失败时自动恢复并重试。
+
+        恢复链路：
+        1. 路径失效 → 重新解析 adb 路径（回退内置/系统 adb）
+        2. 服务端故障 → 重启服务，仍失败则彻底重置
+        3. 连续失败 3 次 → 无论错误类型都强制恢复一次
+        """
         try:
             return self.adb.devices()
         except AdbError as error:
             message = str(error)
-            if not is_server_fault(message):
-                raise
             self._failure_streak += 1
             self.logger.warning("ADB 扫描失败（连续 %s 次）：%s", self._failure_streak, message)
-            if self._try_recover():
+
+            # ① 路径失效：自动回退并重试
+            if self._is_path_fault(message):
+                ensure = getattr(self.adb, "ensure_adb_path", None)
+                if ensure is not None and ensure():
+                    return self.adb.devices()
+
+            # ② 服务端故障：分级恢复
+            if is_server_fault(message) and self._try_recover():
                 return self.adb.devices()
+
+            # ③ 连续失败 3 次：强制恢复一次（兜底）
+            if self._failure_streak >= 3:
+                self._failure_streak = 0
+                self._last_recovery = 0.0
+                if self._try_recover():
+                    return self.adb.devices()
+
             raise
 
     @Slot()
