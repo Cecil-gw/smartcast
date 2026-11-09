@@ -24,6 +24,7 @@ class DeviceCard(QFrame):
     settings_requested = Signal(str)
     serial_copied = Signal(str)
     disconnect_requested = Signal(str)
+    transfer_requested = Signal(str)
 
     def __init__(self, device: DeviceInfo, parent=None) -> None:
         super().__init__(parent)
@@ -127,6 +128,12 @@ class DeviceCard(QFrame):
         self.details_button.clicked.connect(lambda: self.details_requested.emit(self.device.serial))
         self.settings_button.clicked.connect(lambda: self.settings_requested.emit(self.device.serial))
         self.copy_button.clicked.connect(lambda: self.serial_copied.emit(self.device.serial))
+        self.transfer_button = QPushButton("文件互传")
+        self.transfer_button.setObjectName("GhostButton")
+        self.transfer_button.setIcon(icon("export", COLORS["muted"], 13))
+        self.transfer_button.setIconSize(QSize(13, 13))
+        self.transfer_button.setCursor(Qt.PointingHandCursor)
+        self.transfer_button.clicked.connect(lambda: self.transfer_requested.emit(self.device.serial))
         self.disconnect_button = QPushButton('断开')
         self.disconnect_button.setObjectName('GhostButton')
         self.disconnect_button.setIcon(icon('close', COLORS['muted'], 13))
@@ -139,6 +146,7 @@ class DeviceCard(QFrame):
         layout.addLayout(primary_actions)
 
         secondary_actions.addWidget(self.details_button, 1)
+        secondary_actions.addWidget(self.transfer_button, 1)
         secondary_actions.addWidget(self.settings_button, 1)
         secondary_actions.addWidget(self.copy_button)
         secondary_actions.addWidget(self.disconnect_button)

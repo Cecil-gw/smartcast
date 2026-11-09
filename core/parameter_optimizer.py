@@ -101,3 +101,50 @@ def _select_codec(candidates: list[CodecCandidate], requested: str) -> tuple[str
         return None
     best = max(supported, key=lambda item: (item.hardware, item.priority, item.encoder))
     return best.codec, best.hardware, best.encoder
+
+
+@dataclass(frozen=True)
+class AutoTuning:
+    """启动投屏时自动匹配出的实际参数。"""
+
+    resolution: str
+    fps: int
+    reason: str
+
+
+def auto_tune(device: DeviceInfo, resolution: str, fps: int) -> AutoTuning:
+    """按设备屏幕尺寸自动匹配投屏参数。
+
+    规则（仅在用户选择「自动」时生效）：
+    - 分辨率 auto：屏幕长边 > 1080 时限制到 1080，兼顾清晰度与解码压力；
+    - 帧率 0（不限制）或 > 90：自动收敛到 60，避免软件解码压力过大导致模糊。
+    用户显式填写的数值一律尊重，不做覆盖。
+    """
+    reasons: list[str] = []
+
+    tuned_resolution = (resolution or "").lower().replace("p", "")
+    if tuned_resolution in {"auto", ""}:
+        native = _parse_resolution(device.resolution)
+        if native:
+            long_edge = max(native)
+            # 仅在 4K 级别屏幕时限制长边；常见手机保持原生分辨率，
+            # 因为降采样会比原始画面更模糊
+            if long_edge > 2400:
+                tuned_resolution = "1920"
+                reasons.append(f"分辨率上限 1920（原生 {long_edge}）")
+            else:
+                tuned_resolution = "original"
+                reasons.append("保持原始分辨率")
+        else:
+            tuned_resolution = "original"
+
+    tuned_fps = int(fps or 0)
+    if tuned_fps <= 0:
+        tuned_fps = 60
+        reasons.append("帧率 60（不限制）")
+    elif tuned_fps > 90:
+        # >90fps 对软解压力极大，自动收敛到 60
+        tuned_fps = 60
+        reasons.append(f"帧率 {fps} → 60")
+
+    return AutoTuning(tuned_resolution, tuned_fps, "、".join(reasons) if reasons else "")

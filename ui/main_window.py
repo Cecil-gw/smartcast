@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import ctypes
+import ctypes.wintypes
 import logging
-import sys
 import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -10,6 +12,7 @@ from PySide6.QtCore import (
     QAbstractAnimation,
     Q_ARG,
     QEasingCurve,
+    QEvent,
     QRect,
     QRectF,
     QMetaObject,
@@ -44,7 +47,9 @@ from core.adb_network_manager import AdbNetworkManager
 from core.device_control import DeviceControlManager, ScreenBackup, ScreenControlManager
 from core.device_info import DeviceInfo
 from core.encoder_detector import EncoderDetector
+from core.file_transfer import FileTransferManager
 from core.media_manager import MediaManager
+from core.parameter_optimizer import auto_tune
 from core.scrcpy_manager import ScrcpyManager
 from ui.components.sidebar import Sidebar
 from ui.components.cast_toolbar import CastToolBar
@@ -52,6 +57,7 @@ from ui.components.title_bar import TitleBar
 from ui.components.status_bar import StatusBar
 from ui.components.toast import Toast
 from ui.dialogs import FaqDialog
+from ui.phone_file_browser import PhoneFileBrowserDialog
 from ui.network_connect_dialog import NetworkConnectDialog
 from ui.log_bridge import LogEmitter, QtLogHandler
 from ui.pages.cast_settings_page import CastSettingsPage
@@ -72,6 +78,7 @@ from workers.detection_worker import EncoderDetectionThread
 from workers.device_worker import DeviceWorker
 from workers.network_worker import LanScanThread, NetworkConnectThread, NetworkDisconnectThread, ServerRestartThread
 from workers.control_worker import ControlCommandThread
+from workers.file_transfer_worker import FilePullThread, FilePushThread
 from workers.media_worker import RecordControlThread, ScreenshotThread
 from workers.screen_worker import ScreenCommandThread
 from workers.tool_check_worker import ToolCheckThread
@@ -123,6 +130,8 @@ class MainWindow(QMainWindow):
         self.control = DeviceControlManager(self.adb)
         self.screen = ScreenControlManager(self.adb)
         self.media = MediaManager(self.adb.adb_path)
+        self.file_transfer = FileTransferManager(self.adb.adb_path)
+        self._file_threads: set = set()
         self._media_threads: set = set()
         self._recording_serials: set[str] = set()
         self._content_anim_group: QAbstractAnimation | None = None
@@ -160,12 +169,16 @@ class MainWindow(QMainWindow):
         self.settings_page.load(self.config.settings)
         self.device_thread.start()
         QMetaObject.invokeMethod(self.worker, "start", Qt.QueuedConnection)
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
         self.logger.info("SmartCast UI ready")
 
     def _build_ui(self) -> None:
         self.setWindowTitle("SmartCast")
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAcceptDrops(True)  # 支持把文件拖进窗口发送到手机
         self.resize(1280, 820)
         self.setMinimumSize(900, 640)
         central = QWidget()
@@ -287,6 +300,7 @@ class MainWindow(QMainWindow):
         self.device_page.auto_scan_changed.connect(self._auto_scan_changed)
         self.device_page.network_connect_requested.connect(self.open_network_dialog)
         self.device_page.disconnect_requested.connect(self._disconnect_network_device)
+        self.device_page.transfer_requested.connect(self.open_file_transfer)
         self.cast_page.quick_config.applied.connect(self.apply_default_parameters)
         self.settings_page.back_requested.connect(self.show_device_page)
         self.settings_page.save_requested.connect(self.save_settings)
@@ -470,6 +484,11 @@ class MainWindow(QMainWindow):
             self.toast.show_message("当前设备不支持所选编码格式，请更换编码器", "error")
             return
         resolution = str(parameters.get("resolution", "original")).lower().replace("p", "")
+        fps_value = int(parameters.get("fps", 0))
+        tuning = auto_tune(device, resolution, fps_value)
+        if tuning.reason:
+            self.logger.info("自动匹配投屏参数：%s", tuning.reason)
+        resolution, fps_value = tuning.resolution, tuning.fps
         ok = self.scrcpy.start(
             device,
             selected.codec,
@@ -652,6 +671,11 @@ class MainWindow(QMainWindow):
             self.toast.show_message("当前设备不支持可用编码格式", "error")
             return
         resolution = str(parameters.get("resolution", "original")).lower().replace("p", "")
+        fps_value = int(parameters.get("fps", 0))
+        tuning = auto_tune(device, resolution, fps_value)
+        if tuning.reason:
+            self.logger.info("自动匹配投屏参数：%s", tuning.reason)
+        resolution, fps_value = tuning.resolution, tuning.fps
         ok = self.scrcpy.start(
             device,
             selected.codec,
@@ -1163,6 +1187,119 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
         if event.type() == event.Type.WinIdChange or event.type() == event.Type.WindowStateChange:
             self.title_bar.set_maximized(self.isMaximized())
+
+    # ---- 文件传输（复制粘贴 / 拖拽）--------------------------------
+    def _transfer_target_serial(self) -> str | None:
+        """当前接收文件的设备：优先详情页设备，其次第一台在线设备。"""
+        if self.detail_serial and self.detail_serial in self.current_devices:
+            return self.detail_serial
+        for serial, device in self.current_devices.items():
+            if device.state == "device":
+                return serial
+        return None
+
+    # ---- 文件传输对话框 ---------------------------------------------
+    def open_file_transfer(self, serial: str | None = None) -> None:
+        serial = serial or self._transfer_target_serial()
+        if serial is None:
+            self.toast.show_message("没有可用设备，无法传输文件", "error")
+            return
+        device = self.current_devices.get(serial)
+        name = f"{device.manufacturer} {device.model}".strip() if device else serial
+        dialog = FileTransferDialog(name, self)
+        dialog.push_requested.connect(self._push_local_files)
+        dialog.pull_requested.connect(lambda payload: self._pull_remote_path(payload, dialog))
+        self._transfer_dialog = dialog
+        dialog.show()
+
+    def _pull_remote_path(self, payload: str, dialog=None) -> None:
+        serial = self._transfer_target_serial()
+        if serial is None:
+            return
+        if "|" in payload:
+            remote, local_dir = payload.rsplit("|", 1)
+        else:
+            remote = payload
+            local_dir = str(Path.home() / "Downloads" / "SmartCast")
+        self.status_bar.set_message(f"正在从手机取回 {remote} …", "info")
+        thread = FilePullThread(self.file_transfer, serial, [remote], local_dir, self)
+        thread.finished_with_result.connect(self._on_files_pulled)
+        thread.finished.connect(lambda: self._file_threads.discard(thread))
+        self._file_threads.add(thread)
+        thread.start()
+
+    def _on_files_pulled(self, serial: str, result) -> None:
+        if getattr(result, "ok", False):
+            self.toast.show_message(f"已取回 {result.succeeded} 个文件到电脑", "success")
+            self.status_bar.set_message("文件已取回", "success")
+        else:
+            detail = "；".join(getattr(result, "messages", ())[:2])
+            self.toast.show_message(f"取回失败：{detail or '未知错误'}", "error")
+            self.status_bar.set_message("文件取回失败", "error")
+
+    def _push_local_files(self, paths: list[str]) -> None:
+        serial = self._transfer_target_serial()
+        if serial is None:
+            self.toast.show_message("没有可用设备，无法发送文件", "error")
+            return
+        valid = [p for p in paths if Path(p).is_file()]
+        if not valid:
+            self.toast.show_message("没有可发送的文件", "warning")
+            return
+        if getattr(self, "_file_threads", None) is None:
+            self._file_threads = set()
+        self.status_bar.set_message(f"正在发送 {len(valid)} 个文件到 {serial} …", "info")
+        thread = FilePushThread(self.file_transfer, serial, valid, "/sdcard/Download/SmartCast", self)
+        thread.finished_with_result.connect(self._on_files_pushed)
+        thread.finished.connect(lambda: self._file_threads.discard(thread))
+        self._file_threads.add(thread)
+        thread.start()
+
+    def _on_files_pushed(self, serial: str, result) -> None:
+        if getattr(result, "ok", False):
+            self.toast.show_message(
+                f"已发送 {result.succeeded} 个文件到手机（Download/SmartCast）", "success"
+            )
+            self.status_bar.set_message(f"文件已发送到 {serial}", "success")
+        else:
+            detail = "；".join(getattr(result, "messages", ())[:2])
+            self.toast.show_message(f"文件发送失败：{detail or '未知错误'}", "error")
+            self.status_bar.set_message("文件发送失败", "error")
+
+    def eventFilter(self, obj, event) -> bool:
+        """全局 Ctrl+V：仅当剪贴板里是文件时才拦截（文字粘贴不受影响）。"""
+        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_V and (
+            event.modifiers() & Qt.ControlModifier
+        ):
+            mime = QApplication.clipboard().mimeData()
+            if mime is not None and mime.hasUrls():
+                local_files = [u.toLocalFile() for u in mime.urls() if u.isLocalFile()]
+                local_files = [f for f in local_files if f and Path(f).is_file()]
+                if local_files:
+                    self._push_local_files(local_files)
+                    return True
+            # 剪贴板里是手机路径（/sdcard/...）→ 取回到电脑
+            text = (mime.text() if mime is not None else "").strip()
+            if text.startswith("/sdcard/"):
+                self.open_file_transfer(self._transfer_target_serial())
+                return True
+        return super().eventFilter(obj, event)
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:
+        urls = event.mimeData().urls() if event.mimeData().hasUrls() else []
+        files = [u.toLocalFile() for u in urls if u.isLocalFile()]
+        files = [f for f in files if f and Path(f).is_file()]
+        if files:
+            self._push_local_files(files)
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
 
     def _play_content_transition(self) -> None:
         """页面内容淡入 + 轻微右移回归；可被动画开关关闭。"""

@@ -133,7 +133,7 @@ with tempfile.TemporaryDirectory() as temp:
     assert compat.settings["scan_interval"] == 3
     assert compat.settings["casting_scan_interval"] == 0
     assert compat.settings["auto_scan"] is True
-    assert compat.settings["render_driver"] == "opengl"
+    assert compat.settings["render_driver"] == "direct3d"
     assert compat.settings["default_parameters"]["audio"] is True
     assert compat.devices["serial"]["parameters"]["resolution"] == "720"
     assert compat.devices["serial"]["parameters"]["audio"] is True

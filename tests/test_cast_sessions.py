@@ -119,6 +119,35 @@ class SessionManagerTests(unittest.TestCase):
         self.assertNotIn("S1", manager.sessions)
 
 
+class AutoTuneTests(unittest.TestCase):
+    def test_normal_phone_keeps_native_resolution(self) -> None:
+        from core.device_info import DeviceInfo
+        from core.parameter_optimizer import auto_tune
+
+        device = DeviceInfo("S", "device", resolution="1080x2400", density="400")
+        tuning = auto_tune(device, "auto", 0)
+        self.assertEqual(tuning.resolution, "original")
+        self.assertEqual(tuning.fps, 60)
+
+    def test_4k_device_capped(self) -> None:
+        from core.device_info import DeviceInfo
+        from core.parameter_optimizer import auto_tune
+
+        device = DeviceInfo("S", "device", resolution="1440x3200", density="500")
+        tuning = auto_tune(device, "auto", 0)
+        self.assertEqual(tuning.resolution, "1920")
+
+    def test_explicit_values_respected(self) -> None:
+        from core.device_info import DeviceInfo
+        from core.parameter_optimizer import auto_tune
+
+        device = DeviceInfo("S", "device", resolution="1080x2400", density="400")
+        tuning = auto_tune(device, "720", 120)
+        self.assertEqual(tuning.resolution, "720")
+        # >90fps 自动收敛到 60
+        self.assertEqual(tuning.fps, 60)
+
+
 if __name__ == "__main__":
     unittest.main()
 

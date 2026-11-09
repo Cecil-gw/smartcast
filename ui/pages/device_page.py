@@ -33,6 +33,7 @@ class DevicePage(QWidget):
     auto_scan_changed = Signal(bool)
     network_connect_requested = Signal()
     disconnect_requested = Signal(str)
+    transfer_requested = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -134,6 +135,7 @@ class DevicePage(QWidget):
                 card.settings_requested.connect(self.settings_requested)
                 card.serial_copied.connect(self.copy_requested)
                 card.disconnect_requested.connect(self.disconnect_requested)
+                card.transfer_requested.connect(self.transfer_requested)
                 self.cards[device.serial] = card
             else:
                 card.update_device(device)

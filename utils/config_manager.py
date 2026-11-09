@@ -52,7 +52,7 @@ class ConfigManager:
             "scan_interval": 2,
             "casting_scan_interval": 0,
             "auto_scan": True,
-            "render_driver": "opengl",
+            "render_driver": "direct3d",
             "theme": "light",
             "default_parameters": {
                 "video_codec": "auto",
@@ -113,9 +113,9 @@ class ConfigManager:
         self.settings["recent_network_addresses"] = [
             text.strip() for text in recent if isinstance(text, str) and text.strip()
         ]
-        render_driver = str(self.settings.get("render_driver", "opengl")).lower()
+        render_driver = str(self.settings.get("render_driver", "direct3d")).lower()
         if render_driver not in {"opengl", "auto", "direct3d", "software"}:
-            render_driver = "opengl"
+            render_driver = "direct3d"
         self.settings["render_driver"] = render_driver
         theme = str(self.settings.get("theme", "light")).lower()
         if theme != "light":
